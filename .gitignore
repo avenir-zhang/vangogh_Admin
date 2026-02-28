@@ -1,0 +1,44 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Production
+dist
+build
+out
+
+# Misc
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDEs
+.vscode
+.idea
+*.swp
+*.swo
+
+# Umi/Ant Design Pro
+.umi
+.umi-production
+.umi-test
+.mfsu
+
+# Server specific
+server/dist
+server/coverage
+
+# Client specific
+client/dist
+client/.umi
+client/.umi-production
