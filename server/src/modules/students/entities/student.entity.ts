@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, BeforeInsert } from 'typeorm';
 
 export enum Gender {
   MALE = '男',
@@ -60,7 +60,7 @@ export class Student {
   @Column({ length: 20, nullable: true })
   emergency_phone: string;
 
-  @Column({ type: 'date', default: () => '(CURRENT_DATE)' })
+  @Column({ type: 'date', nullable: true })
   registration_date: Date;
 
   @Column({
@@ -81,4 +81,11 @@ export class Student {
 
   @DeleteDateColumn()
   deleted_at: Date;
+
+  @BeforeInsert()
+  setDefaultRegistrationDate() {
+    if (!this.registration_date) {
+      this.registration_date = new Date();
+    }
+  }
 }

@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { Attendance, AttendanceStatus } from './entities/attendance.entity';
 import { Order, OrderStatus } from '../orders/entities/order.entity';
 import { StudentCourse } from '../students/entities/student-course.entity';
+import { Course } from '../courses/entities/course.entity';
 
 @Injectable()
 export class AttendancesService {
@@ -14,8 +15,36 @@ export class AttendancesService {
     private ordersRepository: Repository<Order>,
     @InjectRepository(StudentCourse)
     private studentCoursesRepository: Repository<StudentCourse>,
+    @InjectRepository(Course)
+    private coursesRepository: Repository<Course>,
     private dataSource: DataSource,
   ) {}
+
+  async createBatch(createAttendanceDtos: any[]) {
+      const results: any[] = [];
+      for (const dto of createAttendanceDtos) {
+          try {
+              // 检查该学员是否已经在这个课程中
+              // 如果是临时学员（可能不在 student_courses 中），create 方法会处理（只要有订单）
+              // 但 create 方法会尝试更新 student_courses，如果不存在可能会有问题？
+              // 让我们看看 create 方法的逻辑：
+              // const studentCourse = await queryRunner.manager.findOne(StudentCourse, ...);
+              // if (studentCourse) { ... }
+              // 如果不存在，它只是不更新 StudentCourse 的 remaining_courses，这对于临时学员是预期的（因为他们没有课程绑定记录）
+              // 但是，他们必须有 Order (validOrders)，否则循环不会执行，也就不会有扣费。
+              // 临时学员的前提是：购买了该科目的课时（有订单），但没加入该班级。
+              // 我们的 create 逻辑是先找 validOrders，如果有，就扣费。
+              // 所以临时学员逻辑应该是兼容的。
+              
+              const res = await this.create(dto);
+              results.push({ success: true, data: res });
+          } catch (error) {
+              console.error(`Sign in failed for student ${dto.student_id}:`, error);
+              results.push({ success: false, error: error.message });
+          }
+      }
+      return results;
+  }
 
   async create(createAttendanceDto: any) { // createAttendanceDto might not match Partial<Attendance> due to extra fields or missing ones
     const queryRunner = this.dataSource.createQueryRunner();
@@ -28,16 +57,22 @@ export class AttendancesService {
         // 如果是出勤，需要扣减课时
         if (attendance.status === AttendanceStatus.PRESENT) {
             const { student_id, course_id } = createAttendanceDto;
+            
+            // 获取课程信息以拿到 subject_id
+            const course = await this.coursesRepository.findOne({ where: { id: course_id } });
+            if (!course) {
+                throw new Error('Course not found');
+            }
 
-            // 1. 查找该学生、该课程的所有有效子订单
+            // 1. 查找该学生、该科目下的所有有效子订单
             // 排序规则：优先扣除有有效期的（expire_date NOT NULL 且较早过期），其次无有效期的；同等条件下按创建时间
             // 注意：必须是子订单 (parent_id IS NOT NULL)，且未取消，未过期
             const orders = await queryRunner.manager.find(Order, {
                 where: {
                     student_id,
-                    course_id,
+                    subject_id: course.subject_id, // 使用科目ID关联
                     status: OrderStatus.ACTIVE,
-                    // parent_id: Not(IsNull()) // 确保是子订单，不过 course_id 关联通常在子订单
+                    // parent_id: Not(IsNull()) // 确保是子订单
                 },
                 order: {
                     expire_date: 'ASC', // 优先过期时间早的
@@ -49,7 +84,15 @@ export class AttendancesService {
             const now = new Date();
             const validOrders = orders.filter(o => !o.expire_date || o.expire_date > now);
 
-            let remainingToDeduct = 1; // 假设每次消耗 1 课时
+            // 使用传入的扣减课时，默认为 1
+            let hoursToDeduct = Number(createAttendanceDto.hours_deducted);
+            if (isNaN(hoursToDeduct) || hoursToDeduct <= 0) {
+                hoursToDeduct = 1;
+            }
+            // 记录到 attendance 中
+            attendance.hours_deducted = hoursToDeduct;
+
+            let remainingToDeduct = hoursToDeduct; 
             let deductedOrderId: number | null = null;
 
             // 遍历订单扣减课时
@@ -63,7 +106,7 @@ export class AttendancesService {
                 
                 if (remainingRegular > 0) {
                     const deduct = Math.min(remainingToDeduct, remainingRegular);
-                    order.consumed_regular_courses = (order.consumed_regular_courses || 0) + deduct;
+                    order.consumed_regular_courses = Number(order.consumed_regular_courses || 0) + deduct;
                     remainingToDeduct -= deduct;
                     deductedOrderId = order.id; // 记录主要扣减的订单ID
                     await queryRunner.manager.save(Order, order);
@@ -76,7 +119,7 @@ export class AttendancesService {
                 
                 if (remainingGift > 0) {
                     const deduct = Math.min(remainingToDeduct, remainingGift);
-                    order.consumed_gift_courses = (order.consumed_gift_courses || 0) + deduct;
+                    order.consumed_gift_courses = Number(order.consumed_gift_courses || 0) + deduct;
                     remainingToDeduct -= deduct;
                     deductedOrderId = order.id;
                     await queryRunner.manager.save(Order, order);
@@ -84,15 +127,13 @@ export class AttendancesService {
             }
 
             // 2. 更新 StudentCourse 总剩余课时
-            // 找到对应的 StudentCourse 记录并减 1
+            // 找到对应的 StudentCourse 记录并减去扣减的课时
             const studentCourse = await queryRunner.manager.findOne(StudentCourse, {
                 where: { student_id, course_id }
             });
             if (studentCourse) {
-                // 如果 remainingToDeduct > 0，说明没有足够的课时扣减，StudentCourse 依然减 1，变成负数？
-                // 或者只有在扣减成功时才减？
                 // 这里的逻辑：StudentCourse 是总览，应该如实反映总剩余
-                studentCourse.remaining_courses -= 1;
+                studentCourse.remaining_courses = Number(studentCourse.remaining_courses) - hoursToDeduct;
                 await queryRunner.manager.save(StudentCourse, studentCourse);
             }
             
@@ -100,6 +141,9 @@ export class AttendancesService {
             if (deductedOrderId) {
                 attendance.order_id = deductedOrderId;
             }
+        } else {
+            // 非出勤状态，扣减课时设为 0
+            attendance.hours_deducted = 0;
         }
 
         const savedAttendance = await queryRunner.manager.save(Attendance, attendance);
@@ -146,22 +190,25 @@ export class AttendancesService {
 
         // 如果是出勤，需要回滚扣减的课时
         if (attendance.status === AttendanceStatus.PRESENT) {
-            const { student_id, course_id } = attendance;
+            const { student_id, course_id, hours_deducted } = attendance;
+            const hours = Number(hours_deducted || 1);
 
             // 1. 回滚 StudentCourse 总剩余课时
             const studentCourse = await queryRunner.manager.findOne(StudentCourse, {
                 where: { student_id, course_id }
             });
             if (studentCourse) {
-                studentCourse.remaining_courses = Number(studentCourse.remaining_courses) + 1; // 确保是数字加法
+                studentCourse.remaining_courses = Number(studentCourse.remaining_courses) + hours; // 确保是数字加法
                 await queryRunner.manager.save(StudentCourse, studentCourse);
             }
 
             // 2. 回滚订单扣减 (比较复杂，需要反向操作)
+            const course = await this.coursesRepository.findOne({ where: { id: course_id } });
+            
             const orders = await queryRunner.manager.find(Order, {
                 where: {
                     student_id,
-                    course_id,
+                    subject_id: course?.subject_id,
                     // parent_id: Not(IsNull())
                 },
                 order: {
@@ -169,7 +216,7 @@ export class AttendancesService {
                 }
             });
 
-            let remainingToAdd = 1;
+            let remainingToAdd = hours;
 
             for (const order of orders) {
                 if (remainingToAdd <= 0) break;

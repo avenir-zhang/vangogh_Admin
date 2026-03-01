@@ -19,8 +19,6 @@ export enum OrderStatus {
   CANCELLED = 'cancelled',
 }
 
-import { Course } from '../../courses/entities/course.entity';
-
 @Entity('orders')
 export class Order {
   @PrimaryGeneratedColumn()
@@ -44,24 +42,16 @@ export class Order {
   @Column({ nullable: true })
   subject_id: number;
 
-  // 子订单可以关联具体课程
-  @ManyToOne(() => Course)
-  @JoinColumn({ name: 'course_id' })
-  course: Course;
-
-  @Column({ nullable: true })
-  course_id: number;
-
-  @Column({ default: 0 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
   regular_courses: number;
 
-  @Column({ default: 0 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
   gift_courses: number;
 
-  @Column({ default: 0 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
   consumed_regular_courses: number;
 
-  @Column({ default: 0 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
   consumed_gift_courses: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
@@ -113,7 +103,7 @@ export class Order {
   @OneToMany(() => Order, (order) => order.parent)
   children: Order[];
 
-  @Column({ type: 'date', default: () => '(CURRENT_DATE)' })
+  @Column({ type: 'date', nullable: true })
   order_date: Date;
 
   @Column({ type: 'date', nullable: true })
@@ -128,4 +118,11 @@ export class Order {
 
   @CreateDateColumn()
   created_at: Date;
+
+  @BeforeInsert()
+  setDefaultOrderDate() {
+    if (!this.order_date) {
+      this.order_date = new Date();
+    }
+  }
 }

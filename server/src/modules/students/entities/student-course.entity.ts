@@ -28,14 +28,14 @@ export class StudentCourse {
   @Column()
   course_id: number;
 
-  @ManyToOne(() => Order)
+  @ManyToOne(() => Order, { nullable: true })
   @JoinColumn({ name: 'order_id' })
   order: Order;
 
-  @Column()
+  @Column({ nullable: true })
   order_id: number;
 
-  @Column()
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
   remaining_courses: number;
 
   @Column({ type: 'date', nullable: true })

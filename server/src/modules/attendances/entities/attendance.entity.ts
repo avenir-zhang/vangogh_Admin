@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, Unique } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, Unique, Index } from 'typeorm';
 import { Student } from '../../students/entities/student.entity';
 import { Course } from '../../courses/entities/course.entity';
 import { Teacher } from '../../teachers/entities/teacher.entity';
@@ -13,7 +13,7 @@ export enum AttendanceStatus {
 import { Order } from '../../orders/entities/order.entity';
 
 @Entity('attendances')
-@Unique(['student_id', 'course_id', 'attendance_date'])
+// @Unique(['student_id', 'course_id', 'attendance_date'])
 export class Attendance {
   @PrimaryGeneratedColumn()
   id: number;
@@ -23,6 +23,7 @@ export class Attendance {
   student: Student;
 
   @Column()
+  @Index()
   student_id: number;
 
   @ManyToOne(() => Course)
@@ -30,6 +31,7 @@ export class Attendance {
   course: Course;
 
   @Column()
+  @Index()
   course_id: number;
 
   @ManyToOne(() => Order)
@@ -58,6 +60,9 @@ export class Attendance {
     default: AttendanceStatus.PRESENT,
   })
   status: AttendanceStatus;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 1 })
+  hours_deducted: number;
 
   @Column({ length: 100, nullable: true })
   remark: string;

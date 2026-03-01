@@ -7,29 +7,13 @@ import { request, history } from '@umijs/max';
 const CreateOrder: React.FC = () => {
   const [students, setStudents] = useState<{ label: string; value: number }[]>([]);
   const [subjects, setSubjects] = useState<{ label: string; value: number }[]>([]);
-  const [courses, setCourses] = useState<any[]>([]);
   
-  // 课程按科目分组
-  const coursesBySubject = React.useMemo(() => {
-      const grouped: Record<number, any[]> = {};
-      courses.forEach(course => {
-          const subjectId = course.subject?.id;
-          if (subjectId) {
-              if (!grouped[subjectId]) grouped[subjectId] = [];
-              grouped[subjectId].push({ label: course.name, value: course.id });
-          }
-      });
-      return grouped;
-  }, [courses]);
-
   useEffect(() => {
     const fetchData = async () => {
       const studentData = await request('/api/students');
       setStudents(studentData.map((item: any) => ({ label: item.name, value: item.id })));
       const subjectData = await request('/api/subjects');
       setSubjects(subjectData.map((item: any) => ({ label: item.name, value: item.id })));
-      const courseData = await request('/api/courses');
-      setCourses(courseData);
     };
     fetchData();
   }, []);

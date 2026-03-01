@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull } from 'typeorm';
-import { Order } from './entities/order.entity';
+import { Repository, DataSource, IsNull, In } from 'typeorm';
+import { Order, OrderStatus } from './entities/order.entity';
 import { StudentCourse } from '../students/entities/student-course.entity';
+import { Course } from '../courses/entities/course.entity';
 
 @Injectable()
 export class OrdersService {
@@ -11,6 +12,8 @@ export class OrdersService {
     private ordersRepository: Repository<Order>,
     @InjectRepository(StudentCourse)
     private studentCoursesRepository: Repository<StudentCourse>,
+    @InjectRepository(Course)
+    private coursesRepository: Repository<Course>,
     private dataSource: DataSource,
   ) {}
 
@@ -57,7 +60,7 @@ export class OrdersService {
               
               // 子订单明细
               subOrder.subject_id = item.subject_id;
-              subOrder.course_id = item.course_id; // 保存课程ID
+              // subOrder.course_id = item.course_id; // 移除课程ID
               subOrder.regular_courses = item.regular_courses;
               subOrder.gift_courses = item.gift_courses;
               subOrder.total_fee = item.total_fee;
@@ -65,16 +68,29 @@ export class OrdersService {
               
               const savedSubOrder = await queryRunner.manager.save(Order, subOrder);
 
-              // 3. 创建学员课程记录 (针对子订单)
-              const { course_id } = item;
-              if (course_id) {
-                  const studentCourse = new StudentCourse();
-                  studentCourse.student_id = savedMainOrder.student_id;
-                  studentCourse.course_id = course_id;
-                  studentCourse.order_id = savedSubOrder.id; // 关联到子订单
-                  studentCourse.remaining_courses = (Number(savedSubOrder.regular_courses) || 0) + (Number(savedSubOrder.gift_courses) || 0);
-                  studentCourse.expire_date = savedSubOrder.expire_date;
-                  await queryRunner.manager.save(StudentCourse, studentCourse);
+              // 3. 同步增加 StudentCourse 的剩余课时
+              // 找到该学员在该科目下关联的所有课程
+              // 先找出该科目下的所有课程ID
+              const courses = await this.coursesRepository.find({ 
+                  where: { subject_id: item.subject_id },
+                  select: ['id'] 
+              });
+              
+              if (courses.length > 0) {
+                  const courseIds = courses.map(c => c.id);
+                  const studentCourses = await this.studentCoursesRepository.find({
+                      where: {
+                          student_id: savedMainOrder.student_id,
+                          course_id: In(courseIds)
+                      }
+                  });
+
+                  const totalHoursToAdd = Number(item.regular_courses || 0) + Number(item.gift_courses || 0);
+
+                  for (const sc of studentCourses) {
+                      sc.remaining_courses = Number(sc.remaining_courses || 0) + totalHoursToAdd;
+                      await queryRunner.manager.save(StudentCourse, sc);
+                  }
               }
           }
 
@@ -101,7 +117,7 @@ export class OrdersService {
   findOne(id: number) {
       return this.ordersRepository.findOne({
           where: { id },
-          relations: ['student', 'children', 'children.subject', 'children.course'] // 加载子订单的课程信息
+          relations: ['student', 'children', 'children.subject'] // 移除 children.course
       });
   }
 
@@ -137,12 +153,8 @@ export class OrdersService {
           await queryRunner.manager.save(Order, order);
 
           // 2. 更新关联的 StudentCourse 过期时间
-          // 通过 order_id 找到 StudentCourse
-          const studentCourse = await this.studentCoursesRepository.findOne({ where: { order_id: id } });
-          if (studentCourse) {
-              studentCourse.expire_date = newExpireDate as any;
-              await queryRunner.manager.save(StudentCourse, studentCourse);
-          }
+          // 由于订单与课程不再绑定，这部分逻辑需要调整或移除
+          // 暂时移除，因为没有 course_id 关联了
 
           await queryRunner.commitTransaction();
           return order;
@@ -154,7 +166,60 @@ export class OrdersService {
       }
   }
 
-  update(id: number, updateOrderDto: Partial<Order>) {
+  async update(id: number, updateOrderDto: Partial<Order>) {
+    // 检查是否在更新状态为取消
+    if (updateOrderDto.status === OrderStatus.CANCELLED) {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            // 1. 更新主订单状态
+            await queryRunner.manager.update(Order, id, { status: OrderStatus.CANCELLED });
+
+            // 2. 查找并更新所有子订单状态
+            // 只有当这是主订单时，才会有子订单
+            const children = await queryRunner.manager.find(Order, { where: { parent_id: id } });
+            
+            if (children.length > 0) {
+                // 回滚 StudentCourse 的剩余课时
+                for (const child of children) {
+                    const courses = await this.coursesRepository.find({ 
+                        where: { subject_id: child.subject_id },
+                        select: ['id'] 
+                    });
+                    
+                    if (courses.length > 0) {
+                        const courseIds = courses.map(c => c.id);
+                        const studentCourses = await this.studentCoursesRepository.find({
+                            where: {
+                                student_id: child.student_id,
+                                course_id: In(courseIds)
+                            }
+                        });
+
+                        const totalHoursToDeduct = Number(child.regular_courses || 0) + Number(child.gift_courses || 0);
+
+                        for (const sc of studentCourses) {
+                            sc.remaining_courses = Number(sc.remaining_courses || 0) - totalHoursToDeduct;
+                            await queryRunner.manager.save(StudentCourse, sc);
+                        }
+                    }
+                }
+
+                await queryRunner.manager.update(Order, { parent_id: id }, { status: OrderStatus.CANCELLED });
+            }
+
+            await queryRunner.commitTransaction();
+            return { success: true };
+        } catch (err) {
+            await queryRunner.rollbackTransaction();
+            throw err;
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
     return this.ordersRepository.update(id, updateOrderDto);
   }
 

@@ -4,6 +4,8 @@ import { Repository, Between } from 'typeorm';
 import { Course } from './entities/course.entity';
 import { StudentCourse } from '../students/entities/student-course.entity';
 import { Attendance } from '../attendances/entities/attendance.entity';
+import { Student } from '../students/entities/student.entity';
+import { Order } from '../orders/entities/order.entity';
 
 @Injectable()
 export class CoursesService {
@@ -14,6 +16,10 @@ export class CoursesService {
     private studentCoursesRepository: Repository<StudentCourse>,
     @InjectRepository(Attendance)
     private attendancesRepository: Repository<Attendance>,
+    @InjectRepository(Student)
+    private studentsRepository: Repository<Student>,
+    @InjectRepository(Order)
+    private orderRepository: Repository<Order>,
   ) {}
 
   create(createCourseDto: Partial<Course>) {
@@ -43,44 +49,147 @@ export class CoursesService {
   }
 
   async findCourseStudents(courseId: number) {
-      // 需要聚合查询该学生在该课程下的总消耗
-      // 1. 先查出该课程的所有 StudentCourse 记录
-      const studentCourses = await this.studentCoursesRepository.find({
-          where: { course_id: courseId },
-          relations: ['student', 'order'], 
-      });
-
-      // 2. 对每个学生进行聚合统计 (如果有多个 StudentCourse 记录对应同一个学生，需要合并？)
-      // 通常一个学生在一个课程下可能有多个 StudentCourse (多次购买)
-      // 但前端列表通常希望按“学生”维度展示，而不是按“订单”维度
-      // 这里我们按 StudentCourse 维度返回，前端再根据 student_id 去重或者展示多行
-      // 或者在这里直接按学生分组
-      
-      // 现在的需求是展示：姓名，签到的正价课时总和，签到的赠送课时总和
-      // 这些数据在 order 表里：consumed_regular_courses, consumed_gift_courses
-      
-      const result = [];
-      const studentMap = new Map<number, any>();
-
-      for (const sc of studentCourses) {
-          const studentId = sc.student_id;
-          if (!studentMap.has(studentId)) {
-              studentMap.set(studentId, {
-                  student: sc.student,
-                  total_consumed_regular: 0,
-                  total_consumed_gift: 0,
-                  // total_remaining: 0,
-              });
-          }
-          const data = studentMap.get(studentId);
-          if (sc.order) {
-              data.total_consumed_regular += Number(sc.order.consumed_regular_courses || 0);
-              data.total_consumed_gift += Number(sc.order.consumed_gift_courses || 0);
-          }
-          // data.total_remaining += Number(sc.remaining_courses || 0);
+      // 获取该课程信息
+      const course = await this.coursesRepository.findOne({ where: { id: courseId } });
+      if (!course) {
+          throw new Error('Course not found');
       }
 
-      return Array.from(studentMap.values());
+      // 1. 获取该课程的所有 StudentCourse 记录（花名册）
+      const studentCourses = await this.studentCoursesRepository.find({
+          where: { course_id: courseId },
+          relations: ['student'],
+      });
+
+      if (studentCourses.length === 0) {
+          return [];
+      }
+
+      const studentIds = studentCourses.map(sc => sc.student_id);
+
+      // 2. 查找在该课程的所有签到记录，用于计算已消耗课时（本课程消耗）
+      const courseAttendances = await this.attendancesRepository.createQueryBuilder('attendance')
+          .select(['attendance.student_id', 'attendance.hours_deducted'])
+          .where('attendance.course_id = :courseId', { courseId })
+          .andWhere('attendance.student_id IN (:...studentIds)', { studentIds })
+          .getMany();
+
+      // 3. 计算所有学员在该科目下的剩余课时（动态计算：总购买 - 总消耗）
+      // 3.1 获取所有有效订单的总购买课时 (Active Orders)
+      const purchasedRaw = await this.orderRepository.createQueryBuilder('order')
+          .select('order.student_id', 'student_id')
+          .addSelect('SUM(order.regular_courses + order.gift_courses)', 'total_purchased')
+          .where('order.subject_id = :subjectId', { subjectId: course.subject_id })
+          .andWhere('order.student_id IN (:...studentIds)', { studentIds })
+          .andWhere('order.status = :status', { status: 'active' })
+          .groupBy('order.student_id')
+          .getRawMany();
+      
+      const purchasedMap = new Map<number, number>();
+      purchasedRaw.forEach(item => {
+          purchasedMap.set(Number(item.student_id), Number(item.total_purchased));
+      });
+
+      // 3.2 获取该科目下的总消耗课时 (All Attendances for this Subject)
+      const consumedRaw = await this.attendancesRepository.createQueryBuilder('attendance')
+          .leftJoin('attendance.course', 'course')
+          .select('attendance.student_id', 'student_id')
+          .addSelect('SUM(attendance.hours_deducted)', 'total_consumed')
+          .where('course.subject_id = :subjectId', { subjectId: course.subject_id })
+          .andWhere('attendance.student_id IN (:...studentIds)', { studentIds })
+          .groupBy('attendance.student_id')
+          .getRawMany();
+
+      const consumedMap = new Map<number, number>();
+      consumedRaw.forEach(item => {
+          consumedMap.set(Number(item.student_id), Number(item.total_consumed));
+      });
+
+      // 4. 聚合结果
+      const result = studentCourses.map(sc => {
+          // 计算该学员在该课程的总消耗
+          const studentCourseAttendances = courseAttendances.filter(a => a.student_id === sc.student_id);
+          const consumedInCourse = studentCourseAttendances.reduce((sum, a) => sum + Number(a.hours_deducted || 0), 0);
+
+          // 计算剩余课时
+          const totalPurchased = purchasedMap.get(sc.student_id) || 0;
+          const totalConsumed = consumedMap.get(sc.student_id) || 0;
+          const remaining = totalPurchased - totalConsumed;
+
+          return {
+              student: sc.student,
+              total_consumed: consumedInCourse, // 展示本课程消耗
+              remaining_courses: remaining, // 展示科目总剩余 (动态计算)
+          };
+      });
+      
+      return result;
+  }
+
+  async findAvailableStudents(courseId: number) {
+      // 查找可以加入该课程的学员（购买了该科目，且尚未加入该课程）
+      const course = await this.coursesRepository.findOne({ where: { id: courseId } });
+      if (!course) {
+          throw new Error('Course not found');
+      }
+
+      // 1. 找出所有购买了该科目的学员 (通过订单)
+      // 只要有该科目的有效订单（未过期、有剩余课时）
+      // 注意：这里需要检查订单是否有剩余课时（正价或赠送），而不仅仅是 expire_date
+      const validOrders = await this.orderRepository.createQueryBuilder('order')
+          .select('DISTINCT order.student_id', 'student_id')
+          .where('order.subject_id = :subjectId', { subjectId: course.subject_id })
+          .andWhere('order.status != :cancelled', { cancelled: 'cancelled' })
+          .andWhere('(order.expire_date IS NULL OR order.expire_date > :now)', { now: new Date() })
+          .getRawMany();
+      
+      console.log('Valid orders found:', validOrders);
+      
+      const potentialStudentIds = validOrders.map(o => o.student_id);
+      
+      if (potentialStudentIds.length === 0) {
+          return [];
+      }
+
+      // 2. 排除已经加入该课程的学员
+      const existingStudentCourses = await this.studentCoursesRepository.find({
+          where: { course_id: courseId },
+          select: ['student_id']
+      });
+      const existingStudentIds = new Set(existingStudentCourses.map(sc => sc.student_id));
+      
+      const availableStudentIds = potentialStudentIds.filter(id => !existingStudentIds.has(id));
+      
+      if (availableStudentIds.length === 0) {
+          return [];
+      }
+
+      return this.studentsRepository.findByIds(availableStudentIds);
+  }
+
+  async addStudentToCourse(courseId: number, studentId: number) {
+      // 手动将学员加入课程（创建 StudentCourse 记录）
+      // 检查是否已存在
+      const existing = await this.studentCoursesRepository.findOne({
+          where: { course_id: courseId, student_id: studentId }
+      });
+      if (existing) {
+          return existing;
+      }
+      
+      const studentCourse = new StudentCourse();
+      studentCourse.course_id = courseId;
+      studentCourse.student_id = studentId;
+      // studentCourse.order_id = 0; // No longer bound to a specific order
+      studentCourse.remaining_courses = 0; // This field might be deprecated or calculated dynamically
+      // 或者我们可以把该学员在该科目下的总剩余课时填进去？
+      // 为了保持兼容，暂时填0，或者后续逻辑不再依赖这个字段
+      
+      return this.studentCoursesRepository.save(studentCourse);
+  }
+
+  async removeStudentFromCourse(courseId: number, studentId: number) {
+      return this.studentCoursesRepository.delete({ course_id: courseId, student_id: studentId });
   }
 
   async findCourseAttendances(courseId: number) {

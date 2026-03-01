@@ -28,6 +28,21 @@ export class CoursesController {
       return this.coursesService.findCourseStudents(+id);
   }
 
+  @Get(':id/available-students')
+  findAvailableStudents(@Param('id') id: string) {
+      return this.coursesService.findAvailableStudents(+id);
+  }
+
+  @Post(':id/students')
+  addStudentToCourse(@Param('id') id: string, @Body('studentId') studentId: number) {
+      return this.coursesService.addStudentToCourse(+id, studentId);
+  }
+
+  @Delete(':id/students/:studentId')
+  removeStudentFromCourse(@Param('id') id: string, @Param('studentId') studentId: string) {
+      return this.coursesService.removeStudentFromCourse(+id, +studentId);
+  }
+
   @Get(':id/attendances')
   findCourseAttendances(@Param('id') id: string) {
       return this.coursesService.findCourseAttendances(+id);

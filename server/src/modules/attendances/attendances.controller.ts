@@ -9,7 +9,10 @@ export class AttendancesController {
   constructor(private readonly attendancesService: AttendancesService) {}
 
   @Post()
-  create(@Body() createAttendanceDto: Partial<Attendance>) {
+  create(@Body() createAttendanceDto: any) {
+    if (Array.isArray(createAttendanceDto)) {
+        return this.attendancesService.createBatch(createAttendanceDto);
+    }
     return this.attendancesService.create(createAttendanceDto);
   }
 
