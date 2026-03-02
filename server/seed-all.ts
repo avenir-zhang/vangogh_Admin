@@ -18,9 +18,9 @@ async function seed() {
 
   console.log('Starting seeding process...');
 
-  // 1. Seed Subjects (5 subjects)
-  console.log('Seeding 5 subjects...');
-  const subjectNames = ['素描', '水彩', '油画', '书法', '国画'];
+  // 1. Seed Subjects (10 subjects)
+  console.log('Seeding 10 subjects...');
+  const subjectNames = ['素描', '水彩', '油画', '书法', '国画', '陶艺', '雕塑', '动漫', '摄影', '设计'];
   const subjects: Subject[] = [];
   
   for (const name of subjectNames) {

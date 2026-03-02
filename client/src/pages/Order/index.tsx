@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import type { ProColumns, ActionType } from '@ant-design/pro-components';
 import { ProTable, DrawerForm, ProFormText, ProFormSelect, ProFormDigit, ProFormDatePicker, ProFormMoney } from '@ant-design/pro-components';
-import { Button, message, Popconfirm } from 'antd';
+import { Button, message, Popconfirm, Tabs, Tooltip } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { request, history } from '@umijs/max';
 
@@ -22,6 +22,9 @@ type OrderItem = {
   order_date: string;
   expire_date: string;
   status: string;
+  children?: OrderItem[];
+  consumed_regular_courses?: number;
+  consumed_gift_courses?: number;
 };
 
 const OrderList: React.FC = () => {
@@ -30,6 +33,7 @@ const OrderList: React.FC = () => {
   const [subjects, setSubjects] = useState<{ label: string; value: number }[]>([]);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [currentRow, setCurrentRow] = useState<OrderItem | undefined>(undefined);
+  const [activeTab, setActiveTab] = useState<string>('active');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -39,6 +43,30 @@ const OrderList: React.FC = () => {
       setSubjects(subjectData.map((item: any) => ({ label: item.name, value: item.id })));
     };
     fetchData();
+
+    // 检查 URL 参数
+    const params = new URLSearchParams(window.location.search);
+    const orderNo = params.get('orderNo');
+    if (orderNo && actionRef.current) {
+        // 如果有 orderNo，设置搜索条件
+        // 注意：ProTable 的搜索表单需要通过 formRef 或 actionRef 设置值
+        // 这里简单起见，我们可以直接在 request 中处理，或者利用 ProTable 的 defaultSearchValue（如果页面初次加载）
+        // 但更好的体验是填入搜索框。
+        // 由于 actionRef 无法直接设置搜索表单值，我们可以在 columns 的 initialValue 设置？
+        // 或者使用 formRef。
+    }
+  }, []);
+
+  // 使用 formRef 来控制搜索表单
+  const formRef = useRef<any>();
+
+  useEffect(() => {
+      const params = new URLSearchParams(window.location.search);
+      const orderNo = params.get('orderNo');
+      if (orderNo) {
+          formRef.current?.setFieldsValue({ order_no: orderNo });
+          formRef.current?.submit();
+      }
   }, []);
 
   const columns: ProColumns<OrderItem>[] = [
@@ -53,7 +81,11 @@ const OrderList: React.FC = () => {
       dataIndex: 'student_id',
       valueType: 'select',
       fieldProps: { options: students },
-      render: (_, record) => record.student?.name,
+      render: (_, record) => (
+          <a onClick={() => history.push(`/academic/student/detail/${record.student?.id}`)}>
+              {record.student?.name}
+          </a>
+      ),
     },
     {
       title: '科目',
@@ -63,7 +95,7 @@ const OrderList: React.FC = () => {
       render: (_, record) => {
           // 主订单可能没有科目，显示其包含的子订单科目摘要
           if (record.children && record.children.length > 0) {
-              const subjectNames = record.children.map(c => c.subject?.name).filter(Boolean).join(', ');
+              const subjectNames = record.children.map((c: OrderItem) => c.subject?.name).filter(Boolean).join(', ');
               return subjectNames;
           }
           return record.subject?.name || '-';
@@ -76,7 +108,7 @@ const OrderList: React.FC = () => {
       render: (_, record) => {
           // 汇总子订单课时
           if (record.children && record.children.length > 0) {
-              return record.children.reduce((sum, c) => sum + (c.regular_courses || 0), 0);
+              return record.children.reduce((sum: number, c: OrderItem) => sum + (c.regular_courses || 0), 0);
           }
           return record.regular_courses;
       }
@@ -87,7 +119,7 @@ const OrderList: React.FC = () => {
       valueType: 'digit',
       render: (_, record) => {
           if (record.children && record.children.length > 0) {
-              return record.children.reduce((sum, c) => sum + (c.gift_courses || 0), 0);
+              return record.children.reduce((sum: number, c: OrderItem) => sum + (c.gift_courses || 0), 0);
           }
           return record.gift_courses;
       }
@@ -141,9 +173,10 @@ const OrderList: React.FC = () => {
     {
       title: '状态',
       dataIndex: 'status',
-      valueEnum: {
+      valueEnum: activeTab === 'active' ? {
         active: { text: '正常', status: 'Success' },
         completed: { text: '完成', status: 'Default' },
+      } : {
         cancelled: { text: '作废', status: 'Error' },
       },
     },
@@ -176,36 +209,69 @@ const OrderList: React.FC = () => {
         </a>,
         // 订单创建后不建议随意修改，只允许补缴或作废
         // <a key="editable" ...> 编辑 </a>
-        <Popconfirm
-          key="delete"
-          title="确定作废吗？"
-          onConfirm={async () => {
-            await request(`/api/orders/${record.id}`, { 
-                method: 'PATCH',
-                data: { status: 'cancelled' }
-            });
-            message.success('订单已作废');
-            actionRef.current?.reload();
-          }}
-        >
-          <a>作废</a>
-        </Popconfirm>,
+        (() => {
+            const hasConsumption = record.children?.some(c => 
+                (Number(c.consumed_regular_courses) || 0) > 0 || 
+                (Number(c.consumed_gift_courses) || 0) > 0
+            );
+
+            if (hasConsumption) {
+                return (
+                    <Tooltip key="delete" title="订单已发生消耗，无法作废">
+                        <span style={{ color: 'rgba(0,0,0,0.25)', cursor: 'not-allowed' }}>作废</span>
+                    </Tooltip>
+                );
+            }
+
+            return (
+                <Popconfirm
+                key="delete"
+                title="确定作废吗？"
+                onConfirm={async () => {
+                    await request(`/api/orders/${record.id}`, { 
+                        method: 'PATCH',
+                        data: { status: 'cancelled' }
+                    });
+                    message.success('订单已作废');
+                    actionRef.current?.reload();
+                }}
+                >
+                <a>作废</a>
+                </Popconfirm>
+            );
+        })(),
       ]},
     },
   ];
 
   return (
-    <>
+    <div style={{ backgroundColor: '#fff', padding: 24 }}>
+        <Tabs
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            items={[
+                { label: '有效订单', key: 'active' },
+                { label: '作废订单', key: 'cancelled' },
+            ]}
+            style={{ marginBottom: 16 }}
+        />
     <ProTable<OrderItem>
       columns={columns}
       actionRef={actionRef}
+      formRef={formRef}
       cardBordered
+      params={{ activeTab }}
       request={async (params) => {
         const { current, pageSize, ...search } = params;
+        const queryParams: any = { ...search };
+        if (activeTab === 'cancelled') {
+            queryParams.status = 'cancelled';
+        } else {
+            queryParams.excludeStatus = 'cancelled';
+        }
+
         const msg = await request('/api/orders', {
-          params: {
-            ...search,
-          },
+          params: queryParams,
         });
         return {
           data: msg,
@@ -331,7 +397,7 @@ const OrderList: React.FC = () => {
         }}
       />
     </DrawerForm>
-    </>
+    </div>
   );
 };
 

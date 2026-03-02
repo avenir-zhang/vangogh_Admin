@@ -61,6 +61,13 @@ export class CoursesService {
           relations: ['student'],
       });
 
+      // 更新课程的当前人数 (current_students)
+      // 每次查询时更新，确保数据一致性
+      if (course.current_students !== studentCourses.length) {
+          course.current_students = studentCourses.length;
+          await this.coursesRepository.save(course);
+      }
+
       if (studentCourses.length === 0) {
           return [];
       }
@@ -185,11 +192,23 @@ export class CoursesService {
       // 或者我们可以把该学员在该科目下的总剩余课时填进去？
       // 为了保持兼容，暂时填0，或者后续逻辑不再依赖这个字段
       
-      return this.studentCoursesRepository.save(studentCourse);
+      const result = await this.studentCoursesRepository.save(studentCourse);
+
+      // 更新课程当前人数
+      const count = await this.studentCoursesRepository.count({ where: { course_id: courseId } });
+      await this.coursesRepository.update(courseId, { current_students: count });
+
+      return result;
   }
 
   async removeStudentFromCourse(courseId: number, studentId: number) {
-      return this.studentCoursesRepository.delete({ course_id: courseId, student_id: studentId });
+      const result = await this.studentCoursesRepository.delete({ course_id: courseId, student_id: studentId });
+      
+      // 更新课程当前人数
+      const count = await this.studentCoursesRepository.count({ where: { course_id: courseId } });
+      await this.coursesRepository.update(courseId, { current_students: count });
+
+      return result;
   }
 
   async findCourseAttendances(courseId: number) {

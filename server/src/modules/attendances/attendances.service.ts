@@ -173,8 +173,180 @@ export class AttendancesService {
     return this.attendancesRepository.findOne({ where: { id }, relations: ['student', 'course', 'teacher'] });
   }
 
-  update(id: number, updateAttendanceDto: Partial<Attendance>) {
-    return this.attendancesRepository.update(id, updateAttendanceDto);
+  async update(id: number, updateAttendanceDto: Partial<Attendance>) {
+    // 检查是否修改了 status 或 hours_deducted
+    // 如果修改了，需要同步更新 StudentCourse 和 Order 的消耗
+    
+    // 1. 获取原始记录
+    const oldAttendance = await this.attendancesRepository.findOne({ where: { id } });
+    if (!oldAttendance) {
+        throw new Error('Attendance not found');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+        // 2. 计算旧的扣除值
+        const oldDeducted = oldAttendance.status === AttendanceStatus.PRESENT ? Number(oldAttendance.hours_deducted || 1) : 0;
+
+        // 3. 计算新的扣除值
+        const newStatus = updateAttendanceDto.status || oldAttendance.status;
+        const newHoursInput = updateAttendanceDto.hours_deducted;
+        // 如果传入了 hours_deducted，使用传入值；否则使用旧值。注意 0 是有效值。
+        const newHoursVal = newHoursInput !== undefined ? Number(newHoursInput) : Number(oldAttendance.hours_deducted || 1);
+        
+        const newDeducted = newStatus === AttendanceStatus.PRESENT ? newHoursVal : 0;
+
+        const diff = newDeducted - oldDeducted;
+
+        if (diff !== 0) {
+            const { student_id, course_id } = oldAttendance;
+
+            // 更新 StudentCourse
+            const studentCourse = await queryRunner.manager.findOne(StudentCourse, {
+                where: { student_id, course_id }
+            });
+            
+            if (studentCourse) {
+                // diff > 0: 扣除更多，余额减少 (remaining - diff)
+                // diff < 0: 返还，余额增加 (remaining - diff)  (e.g. - (-0.5) = +0.5)
+                studentCourse.remaining_courses = Number(studentCourse.remaining_courses) - diff;
+                await queryRunner.manager.save(StudentCourse, studentCourse);
+            }
+
+            // 更新 Orders
+            if (diff > 0) {
+                // 需要额外扣除 diff
+                let remainingToDeduct = diff;
+                
+                // 查找该学生、该科目下的所有有效子订单 (逻辑同 create)
+                const course = await this.coursesRepository.findOne({ where: { id: course_id } });
+                const orders = await queryRunner.manager.find(Order, {
+                    where: {
+                        student_id,
+                        subject_id: course?.subject_id,
+                        status: OrderStatus.ACTIVE,
+                    },
+                    order: {
+                        expire_date: 'ASC',
+                        created_at: 'ASC',
+                    }
+                });
+                
+                const now = new Date();
+                const validOrders = orders.filter(o => !o.expire_date || o.expire_date > now);
+
+                for (const order of validOrders) {
+                    if (remainingToDeduct <= 0) break;
+
+                    const remainingRegular = (order.regular_courses || 0) - (order.consumed_regular_courses || 0);
+                    if (remainingRegular > 0) {
+                        const deduct = Math.min(remainingToDeduct, remainingRegular);
+                        order.consumed_regular_courses = Number(order.consumed_regular_courses || 0) + deduct;
+                        remainingToDeduct -= deduct;
+                        await queryRunner.manager.save(Order, order);
+                        // 如果修改导致消耗增加，更新签到关联的订单ID（如果是主要消耗源变化）
+                        // 简单起见，这里暂不更新 attendance.order_id，除非完全切换了订单
+                    }
+
+                    if (remainingToDeduct <= 0) break;
+
+                    const remainingGift = (order.gift_courses || 0) - (order.consumed_gift_courses || 0);
+                    if (remainingGift > 0) {
+                        const deduct = Math.min(remainingToDeduct, remainingGift);
+                        order.consumed_gift_courses = Number(order.consumed_gift_courses || 0) + deduct;
+                        remainingToDeduct -= deduct;
+                        await queryRunner.manager.save(Order, order);
+                    }
+                }
+            } else {
+                // 需要返还 -diff (逻辑同 remove)
+                let remainingToAdd = -diff;
+                
+                // 优先从该签到记录绑定的订单中回补
+                // 检查 oldAttendance 是否有关联的 order_id
+                if (oldAttendance.order_id) {
+                    const linkedOrder = await queryRunner.manager.findOne(Order, { where: { id: oldAttendance.order_id } });
+                    if (linkedOrder) {
+                        // 尝试从关联订单回补
+                        // 优先回补赠送还是正价？create 是先扣正价后赠送。remove 是先补赠送后正价（为了对齐？）。
+                        // 这里我们保持 remove 的逻辑：先补赠送，后补正价。或者反过来？
+                        // 如果扣除顺序是：正价 -> 赠送。
+                        // 那么返还顺序应该是：赠送 -> 正价（栈结构）。
+                        
+                        const consumedGift = Number(linkedOrder.consumed_gift_courses || 0);
+                        if (consumedGift > 0) {
+                            const add = Math.min(remainingToAdd, consumedGift);
+                            linkedOrder.consumed_gift_courses = consumedGift - add;
+                            remainingToAdd -= add;
+                            await queryRunner.manager.save(Order, linkedOrder);
+                        }
+
+                        if (remainingToAdd > 0) {
+                            const consumedRegular = Number(linkedOrder.consumed_regular_courses || 0);
+                            if (consumedRegular > 0) {
+                                const add = Math.min(remainingToAdd, consumedRegular);
+                                linkedOrder.consumed_regular_courses = consumedRegular - add;
+                                remainingToAdd -= add;
+                                await queryRunner.manager.save(Order, linkedOrder);
+                            }
+                        }
+                    }
+                }
+
+                // 如果关联订单不够回补（或者没有关联订单），则按时间倒序查找其他订单
+                if (remainingToAdd > 0) {
+                    const course = await this.coursesRepository.findOne({ where: { id: course_id } });
+                    const orders = await queryRunner.manager.find(Order, {
+                        where: {
+                            student_id,
+                            subject_id: course?.subject_id,
+                        },
+                        order: {
+                            created_at: 'DESC', // 优先找最近的订单回补
+                        }
+                    });
+
+                    for (const order of orders) {
+                        if (remainingToAdd <= 0) break;
+                        // 跳过已经处理过的关联订单
+                        if (order.id === oldAttendance.order_id) continue;
+
+                        const consumedGift = Number(order.consumed_gift_courses || 0);
+                        if (consumedGift > 0) {
+                            const add = Math.min(remainingToAdd, consumedGift);
+                            order.consumed_gift_courses = consumedGift - add;
+                            remainingToAdd -= add;
+                            await queryRunner.manager.save(Order, order);
+                        }
+
+                        if (remainingToAdd <= 0) break;
+
+                        const consumedRegular = Number(order.consumed_regular_courses || 0);
+                        if (consumedRegular > 0) {
+                            const add = Math.min(remainingToAdd, consumedRegular);
+                            order.consumed_regular_courses = consumedRegular - add;
+                            remainingToAdd -= add;
+                            await queryRunner.manager.save(Order, order);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 更新 Attendance 记录本身
+        await queryRunner.manager.update(Attendance, id, updateAttendanceDto);
+        await queryRunner.commitTransaction();
+        
+        return this.attendancesRepository.findOne({ where: { id } });
+    } catch (err) {
+        await queryRunner.rollbackTransaction();
+        throw err;
+    } finally {
+        await queryRunner.release();
+    }
   }
 
   async remove(id: number) {

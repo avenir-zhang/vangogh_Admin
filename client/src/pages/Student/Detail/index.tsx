@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { PageContainer, ProDescriptions, ProTable } from '@ant-design/pro-components';
 import { Card, Button, message, Tabs, Tag, Space, Descriptions, Statistic, Row, Col } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
 import { useParams, history, request } from '@umijs/max';
+import * as XLSX from 'xlsx';
 
 const StudentDetail: React.FC = () => {
   const params = useParams<{ id: string }>();
@@ -24,6 +26,37 @@ const StudentDetail: React.FC = () => {
           setSubjectStats(res);
       } catch (error) {
           console.error(error);
+      }
+  };
+
+  const handleExportAttendances = async () => {
+      try {
+          const msg = await request(`/api/attendances`, { params: { current: 1, pageSize: 10000, student_id: studentId } });
+          const data = msg || [];
+          
+          const exportData = data.map((item: any) => ({
+              '学员姓名': item.student?.name || '-',
+              '课程名称': item.course?.name || '-',
+              '科目': item.course?.subject?.name || '-',
+              '教师姓名': item.teacher?.name || '-',
+              '子订单号': item.order?.order_no || '-',
+              '签到日期': item.attendance_date,
+              '状态': {
+                  present: '出勤',
+                  absent: '缺勤',
+                  late: '迟到',
+                  leave: '请假'
+              }[item.status as string] || item.status,
+              '扣除课时': Number(item.hours_deducted || 0),
+          }));
+
+          const ws = XLSX.utils.json_to_sheet(exportData);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "学员签到记录");
+          XLSX.writeFile(wb, `学员签到记录_${student.name}_${new Date().getTime()}.xlsx`);
+          message.success('导出成功');
+      } catch (error) {
+          message.error('导出失败');
       }
   };
 
@@ -226,7 +259,11 @@ const StudentDetail: React.FC = () => {
                 <ProTable
                   rowKey="id"
                   search={false}
-                  toolBarRender={false}
+                  toolBarRender={() => [
+                      <Button key="export" icon={<DownloadOutlined />} onClick={handleExportAttendances}>
+                          导出
+                      </Button>
+                  ]}
                   request={async (params) => {
                     const res = await request(`/api/attendances`, {
                         params: { ...params, student_id: studentId }

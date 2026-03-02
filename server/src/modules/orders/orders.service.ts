@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull, In } from 'typeorm';
-import { Order, OrderStatus } from './entities/order.entity';
-import { StudentCourse } from '../students/entities/student-course.entity';
+import { Repository, DataSource, IsNull, In, Not } from 'typeorm';
+import { Order, OrderStatus, OrderType, DebtStatus } from './entities/order.entity';
+import { StudentCourse, StudentCourseStatus } from '../students/entities/student-course.entity';
 import { Course } from '../courses/entities/course.entity';
 
 @Injectable()
@@ -78,17 +78,27 @@ export class OrdersService {
               
               if (courses.length > 0) {
                   const courseIds = courses.map(c => c.id);
-                  const studentCourses = await this.studentCoursesRepository.find({
+                  const existingStudentCourses = await this.studentCoursesRepository.find({
                       where: {
                           student_id: savedMainOrder.student_id,
                           course_id: In(courseIds)
                       }
                   });
 
+                  const existingMap = new Map(existingStudentCourses.map(sc => [sc.course_id, sc]));
                   const totalHoursToAdd = Number(item.regular_courses || 0) + Number(item.gift_courses || 0);
 
-                  for (const sc of studentCourses) {
-                      sc.remaining_courses = Number(sc.remaining_courses || 0) + totalHoursToAdd;
+                  for (const courseId of courseIds) {
+                      let sc = existingMap.get(courseId);
+                      if (sc) {
+                          sc.remaining_courses = Number(sc.remaining_courses || 0) + totalHoursToAdd;
+                      } else {
+                          sc = new StudentCourse();
+                          sc.student_id = savedMainOrder.student_id;
+                          sc.course_id = courseId;
+                          sc.remaining_courses = totalHoursToAdd;
+                          sc.status = StudentCourseStatus.ACTIVE;
+                      }
                       await queryRunner.manager.save(StudentCourse, sc);
                   }
               }
@@ -105,10 +115,29 @@ export class OrdersService {
   }
 
   findAll(query?: any) {
-    const { current, pageSize, ...filter } = query || {};
+    const { current, pageSize, excludeStatus, activeTab, ...filter } = query || {};
+    const where: any = { ...filter, parent_id: IsNull() };
+    
+    // 如果 filter 中有 status，并且与 excludeStatus 冲突，则返回空
+    if (excludeStatus && where.status === excludeStatus) {
+        return Promise.resolve([]);
+    }
+
+    if (excludeStatus && !where.status) {
+        where.status = Not(excludeStatus);
+    }
+
     // 只查询主订单 (parent_id IS NULL)
+    // 移除 where.id = -1 这种逻辑，因为 id 必须是数字，如果是无效查询，应该直接返回空数组
+    // 上面的 Promise.resolve([]) 已经处理了
+    
+    // 检查其他可能导致 500 的参数，比如分页参数是否正确
+    // current, pageSize 已经被解构出去了，不会进入 find 的 options
+    
+    // 确保 relations 存在
+    
     return this.ordersRepository.find({ 
-      where: { ...filter, parent_id: IsNull() }, 
+      where, 
       relations: ['student', 'children', 'children.subject'], 
       order: { created_at: 'DESC' }
     });
@@ -166,6 +195,155 @@ export class OrdersService {
       }
   }
 
+  // 转让订单
+  async transfer(orderId: number, targetStudentId: number, transferDetails?: { subjectId: number, amount: number }) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      try {
+          // 1. 获取源子订单
+          const sourceOrder = await queryRunner.manager.findOne(Order, { 
+              where: { id: orderId },
+              relations: ['subject']
+          });
+
+          if (!sourceOrder) {
+              throw new Error('Order not found');
+          }
+
+          if (sourceOrder.parent_id === null) {
+              throw new Error('Only sub-orders can be transferred');
+          }
+
+          if (sourceOrder.status !== OrderStatus.ACTIVE) {
+              throw new Error('Only active orders can be transferred');
+          }
+
+          // 2. 计算剩余课时
+          const regularRemaining = Number(sourceOrder.regular_courses || 0) - Number(sourceOrder.consumed_regular_courses || 0);
+          const giftRemaining = Number(sourceOrder.gift_courses || 0) - Number(sourceOrder.consumed_gift_courses || 0);
+          const totalRemaining = regularRemaining + giftRemaining;
+
+          if (totalRemaining <= 0) {
+              throw new Error('No remaining hours to transfer');
+          }
+
+          // 3. 扣除源学员的 StudentCourse
+          const courses = await queryRunner.manager.find(Course, { 
+              where: { subject_id: sourceOrder.subject_id },
+              select: ['id'] 
+          });
+
+          if (courses.length > 0) {
+              const courseIds = courses.map(c => c.id);
+              const sourceStudentCourses = await queryRunner.manager.find(StudentCourse, {
+                  where: {
+                      student_id: sourceOrder.student_id,
+                      course_id: In(courseIds)
+                  }
+              });
+
+              for (const sc of sourceStudentCourses) {
+                  sc.remaining_courses = Number(sc.remaining_courses || 0) - totalRemaining;
+                  await queryRunner.manager.save(StudentCourse, sc);
+              }
+          }
+
+          // 4. 更新源订单状态和消耗
+          sourceOrder.regular_courses = sourceOrder.consumed_regular_courses;
+          sourceOrder.gift_courses = sourceOrder.consumed_gift_courses;
+          sourceOrder.status = OrderStatus.TRANSFERRED;
+          await queryRunner.manager.save(Order, sourceOrder);
+
+          // 5. 为目标学员创建新订单（类型为转让）
+          const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+          const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+
+          const mainOrder = new Order();
+          mainOrder.order_no = `TRF-${date}-${random}`;
+          mainOrder.student_id = targetStudentId;
+          mainOrder.order_type = OrderType.TRANSFER;
+          mainOrder.total_fee = 0; // 转让通常不涉及新费用
+          mainOrder.paid_fee = 0;
+          mainOrder.debt_status = DebtStatus.NORMAL;
+          mainOrder.debt_amount = 0; 
+          mainOrder.order_date = new Date();
+          
+          const savedMainOrder = await queryRunner.manager.save(Order, mainOrder);
+
+          const subOrder = new Order();
+          subOrder.order_no = `${savedMainOrder.order_no}-1`;
+          subOrder.parent = savedMainOrder;
+          subOrder.student_id = targetStudentId;
+          
+          // 如果指定了转让科目，则使用指定科目；否则使用原科目
+          const targetSubjectId = transferDetails?.subjectId || sourceOrder.subject_id;
+          subOrder.subject_id = targetSubjectId;
+          
+          subOrder.order_type = OrderType.TRANSFER;
+          
+          // 如果指定了转让课时数，则使用指定数量；否则使用原剩余总数
+          // 注意：如果指定数量与原剩余数量不一致，这通常涉及到折算
+          // 这里我们简单处理：源订单总是全部转出（totalRemaining），
+          // 目标订单获得的课时数可以是折算后的（transferDetails.amount）
+          const targetAmount = transferDetails?.amount || totalRemaining;
+          
+          subOrder.regular_courses = targetAmount;
+          subOrder.gift_courses = 0; // 转让过来的统一算作正价，或者按需分配。这里简化为全部正价。
+          
+          subOrder.total_fee = 0;
+          subOrder.paid_fee = 0; 
+          subOrder.debt_amount = 0; 
+          subOrder.order_date = new Date();
+          subOrder.expire_date = sourceOrder.expire_date; // 继承有效期
+          subOrder.source_order_id = sourceOrder.id; // 记录源订单ID，方便后续回滚
+
+          await queryRunner.manager.save(Order, subOrder);
+
+          // 6. 增加目标学员的 StudentCourse
+          const targetCourses = await queryRunner.manager.find(Course, { 
+              where: { subject_id: targetSubjectId },
+              select: ['id'] 
+          });
+
+          if (targetCourses.length > 0) {
+              const courseIds = targetCourses.map(c => c.id);
+              const targetStudentCourses = await queryRunner.manager.find(StudentCourse, {
+                  where: {
+                      student_id: targetStudentId,
+                      course_id: In(courseIds)
+                  }
+              });
+
+              const targetMap = new Map(targetStudentCourses.map(sc => [sc.course_id, sc]));
+
+              for (const courseId of courseIds) {
+                  let sc = targetMap.get(courseId);
+                  if (sc) {
+                      sc.remaining_courses = Number(sc.remaining_courses || 0) + targetAmount;
+                  } else {
+                      sc = new StudentCourse();
+                      sc.student_id = targetStudentId;
+                      sc.course_id = courseId;
+                      sc.remaining_courses = targetAmount;
+                      sc.status = StudentCourseStatus.ACTIVE;
+                  }
+                  await queryRunner.manager.save(StudentCourse, sc);
+              }
+          }
+
+          await queryRunner.commitTransaction();
+          return { success: true };
+
+      } catch (err) {
+          await queryRunner.rollbackTransaction();
+          throw err;
+      } finally {
+          await queryRunner.release();
+      }
+  }
+
   async update(id: number, updateOrderDto: Partial<Order>) {
     // 检查是否在更新状态为取消
     if (updateOrderDto.status === OrderStatus.CANCELLED) {
@@ -182,7 +360,67 @@ export class OrdersService {
             const children = await queryRunner.manager.find(Order, { where: { parent_id: id } });
             
             if (children.length > 0) {
-                // 回滚 StudentCourse 的剩余课时
+                // 检查子订单是否已经有消耗
+                for (const child of children) {
+                    const consumed = Number(child.consumed_regular_courses || 0) + Number(child.consumed_gift_courses || 0);
+                    if (consumed > 0) {
+                        // 抛出特定的业务错误，而不是通用 Error，以便 Controller 捕获并返回 400
+                        throw new Error('ORDER_HAS_CONSUMPTION');
+                    }
+                }
+                
+                // 特殊处理转让订单的回滚
+                const mainOrder = await queryRunner.manager.findOne(Order, { where: { id } });
+                if (mainOrder && mainOrder.order_type === OrderType.TRANSFER) {
+                    // 找到所有子订单（应该只有一个）
+                    for (const child of children) {
+                        if (child.source_order_id) {
+                            const sourceOrder = await queryRunner.manager.findOne(Order, { where: { id: child.source_order_id } });
+                            if (sourceOrder) {
+                                // 1. 恢复源订单的状态为 ACTIVE
+                                sourceOrder.status = OrderStatus.ACTIVE;
+                                
+                                // 2. 恢复源订单的课时数
+                                // 注意：我们之前将源订单的课时数设置为了已消耗数
+                                // 现在需要加回来
+                                const hoursToReturnRegular = Number(child.regular_courses || 0);
+                                const hoursToReturnGift = Number(child.gift_courses || 0);
+                                
+                                sourceOrder.regular_courses = Number(sourceOrder.regular_courses || 0) + hoursToReturnRegular;
+                                sourceOrder.gift_courses = Number(sourceOrder.gift_courses || 0) + hoursToReturnGift;
+                                
+                                await queryRunner.manager.save(Order, sourceOrder);
+                                
+                                // 3. 恢复源学员的 StudentCourse
+                                const courses = await queryRunner.manager.find(Course, { 
+                                    where: { subject_id: sourceOrder.subject_id },
+                                    select: ['id'] 
+                                });
+                                
+                                if (courses.length > 0) {
+                                    const courseIds = courses.map(c => c.id);
+                                    const sourceStudentCourses = await queryRunner.manager.find(StudentCourse, {
+                                        where: {
+                                            student_id: sourceOrder.student_id,
+                                            course_id: In(courseIds)
+                                        }
+                                    });
+                                    
+                                    const totalHoursToReturn = hoursToReturnRegular + hoursToReturnGift;
+                                    
+                                    for (const sc of sourceStudentCourses) {
+                                        sc.remaining_courses = Number(sc.remaining_courses || 0) + totalHoursToReturn;
+                                        await queryRunner.manager.save(StudentCourse, sc);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 回滚 StudentCourse 的剩余课时 (这里是扣除目标学员的课时，原有逻辑已涵盖)
+                // 原有逻辑会遍历 children，扣除 student_id (即目标学员) 的课时。
+                // 所以我们只需要处理源学员的恢复即可。
                 for (const child of children) {
                     const courses = await this.coursesRepository.find({ 
                         where: { subject_id: child.subject_id },

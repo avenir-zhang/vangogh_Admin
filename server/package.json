@@ -32,7 +32,7 @@
     "@types/passport-jwt": "^4.0.1",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
-    "class-validator": "^0.15.1",
+    "class-validator": "^0.14.0",
     "dayjs": "^1.11.19",
     "mysql2": "^3.18.2",
     "passport": "^0.7.0",

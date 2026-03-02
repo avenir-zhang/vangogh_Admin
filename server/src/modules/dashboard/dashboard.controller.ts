@@ -8,12 +8,38 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('summary')
-  getSummary() {
-    return this.dashboardService.getSummary();
+  async getSummary() {
+    const data = await this.dashboardService.getSummary();
+    return { success: true, data };
   }
 
   @Get('financial')
-  getFinancial() {
-    return this.dashboardService.getFinancial();
+  async getFinancial() {
+    const data = await this.dashboardService.getFinancial();
+    return { success: true, data };
+  }
+
+  @Get('attendance-trend')
+  async getAttendanceTrend() {
+    const data = await this.dashboardService.getAttendanceTrend();
+    return { success: true, data };
+  }
+
+  @Get('arrears-list')
+  async getArrearsList() {
+    const data = await this.dashboardService.getArrearsList();
+    return { success: true, data };
+  }
+
+  @Get('expiring-list')
+  async getExpiringList() {
+    const data = await this.dashboardService.getExpiringList();
+    return { success: true, data };
+  }
+
+  @Get('exceeded-list')
+  async getExceededList() {
+    const data = await this.dashboardService.getExceededList();
+    return { success: true, data };
   }
 }

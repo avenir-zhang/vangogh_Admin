@@ -7,7 +7,6 @@ export default [
       { component: './404' },
     ],
   },
-  { path: '/welcome', name: '欢迎', icon: 'smile', component: './Welcome' },
   {
     path: '/admin',
     name: '管理页',
@@ -37,7 +36,7 @@ export default [
   },
   {
     name: '财务管理',
-    icon: 'pay-circle',
+    icon: 'moneyCollect',
     path: '/finance',
     routes: [
         { path: '/finance/analysis', name: '财务总览', component: './Finance' },

@@ -31,6 +31,11 @@ const StudentList: React.FC = () => {
     {
       title: '姓名',
       dataIndex: 'name',
+      render: (_, record) => (
+          <a onClick={() => history.push(`/academic/student/detail/${record.id}`)}>
+              {record.name}
+          </a>
+      ),
     },
     {
       title: '昵称',

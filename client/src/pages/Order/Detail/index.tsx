@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { PageContainer, ProDescriptions, ProTable } from '@ant-design/pro-components';
-import { Card, Button, message, Modal, InputNumber, Form } from 'antd';
+import { Card, Button, message, Modal, InputNumber, Form, Select } from 'antd';
 import { useParams, request } from '@umijs/max';
 
 const OrderDetail: React.FC = () => {
@@ -8,6 +8,28 @@ const OrderDetail: React.FC = () => {
   const [order, setOrder] = useState<any>(null);
   const [isSupplementModalOpen, setIsSupplementModalOpen] = useState(false);
   const [supplementAmount, setSupplementAmount] = useState<number>(0);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [transferTargetOrder, setTransferTargetOrder] = useState<any>(null);
+  const [targetStudentId, setTargetStudentId] = useState<number | undefined>(undefined);
+  const [targetSubjectId, setTargetSubjectId] = useState<number | undefined>(undefined);
+  const [transferAmount, setTransferAmount] = useState<number | undefined>(undefined);
+  const [students, setStudents] = useState<{ label: string; value: number }[]>([]);
+  const [subjects, setSubjects] = useState<{ label: string; value: number }[]>([]);
+
+  const fetchStudents = async () => {
+      const data = await request('/api/students');
+      setStudents(data.map((item: any) => ({ label: item.name, value: item.id })));
+  };
+
+  const fetchSubjects = async () => {
+      const data = await request('/api/subjects');
+      setSubjects(data.map((item: any) => ({ label: item.name, value: item.id })));
+  };
+
+  useEffect(() => {
+      fetchStudents();
+      fetchSubjects();
+  }, []);
 
   const fetchOrder = async () => {
     try {
@@ -39,6 +61,32 @@ const OrderDetail: React.FC = () => {
           fetchOrder(); // 刷新详情
       } catch (error) {
           message.error('补缴失败');
+      }
+  };
+
+  const handleTransfer = async () => {
+      if (!targetStudentId) {
+          message.error('请选择接收学员');
+          return;
+      }
+      try {
+          await request(`/api/orders/${transferTargetOrder.id}/transfer`, {
+              method: 'POST',
+              data: { 
+                  targetStudentId,
+                  subjectId: targetSubjectId,
+                  amount: transferAmount
+              }
+          });
+          message.success('转让成功');
+          setIsTransferModalOpen(false);
+          setTransferTargetOrder(null);
+          setTargetStudentId(undefined);
+          setTargetSubjectId(undefined);
+          setTransferAmount(undefined);
+          fetchOrder(); // 刷新详情
+      } catch (error) {
+          message.error('转让失败');
       }
   };
 
@@ -107,6 +155,15 @@ const OrderDetail: React.FC = () => {
                         >
                             修改有效期
                         </a>,
+                        <a
+                            key="transfer"
+                            onClick={() => {
+                                setTransferTargetOrder(record);
+                                setIsTransferModalOpen(true);
+                            }}
+                        >
+                            转让
+                        </a>,
                     ],
                 },
             ]}
@@ -142,6 +199,54 @@ const OrderDetail: React.FC = () => {
                   />
                   <div style={{ marginTop: 8, color: '#999' }}>
                       当前欠费: ¥{order.debt_amount}
+                  </div>
+              </Form.Item>
+          </Form>
+      </Modal>
+      <Modal
+        title="订单转让"
+        open={isTransferModalOpen}
+        onOk={handleTransfer}
+        onCancel={() => setIsTransferModalOpen(false)}
+      >
+          <Form layout="vertical">
+              <Form.Item label="转让给" required>
+                  <Select
+                    showSearch
+                    placeholder="请选择学员"
+                    optionFilterProp="children"
+                    options={students}
+                    value={targetStudentId}
+                    onChange={setTargetStudentId}
+                    filterOption={(input, option) =>
+                        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                  />
+              </Form.Item>
+              <Form.Item label="折算科目 (选填)">
+                  <Select
+                    showSearch
+                    placeholder="请选择科目 (默认原科目)"
+                    optionFilterProp="children"
+                    options={subjects}
+                    value={targetSubjectId}
+                    onChange={setTargetSubjectId}
+                    filterOption={(input, option) =>
+                        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                    allowClear
+                  />
+              </Form.Item>
+              <Form.Item label="折算课时数 (选填)">
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    placeholder="请输入课时数 (默认原剩余课时)"
+                    min={0}
+                    value={transferAmount}
+                    onChange={(val) => setTransferAmount(Number(val))}
+                  />
+                  <div style={{ marginTop: 8, color: '#999' }}>
+                      将把该子订单剩余课时全部转出，目标学员将获得指定数量的指定科目课时。
                   </div>
               </Form.Item>
           </Form>

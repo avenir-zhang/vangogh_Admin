@@ -13,13 +13,13 @@ import * as bcrypt from 'bcrypt';
 
 const AppDataSource = new DataSource({
   type: 'mysql',
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '3306'),
-  username: process.env.DB_USERNAME || 'root',
-  password: process.env.DB_PASSWORD || 'Fangaoart_100',
-  database: process.env.DB_DATABASE || 'vangogh_db',
+  host: 'localhost',
+  port: 3306,
+  username: 'root',
+  password: '',
+  database: 'vangogh_db',
   entities: [User, Student, Teacher, Subject, Course, Order, Attendance, StudentCourse],
-  synchronize: false, // Don't sync, just use existing
+  synchronize: true, // Use synchronize: true to create tables
 });
 
 async function seed() {

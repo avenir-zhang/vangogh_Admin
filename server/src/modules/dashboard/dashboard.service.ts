@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { Student, StudentStatus } from '../students/entities/student.entity';
-import { Order, OrderStatus } from '../orders/entities/order.entity';
+import { StudentCourse, StudentCourseStatus } from '../students/entities/student-course.entity';
+import { Order, OrderStatus, DebtStatus } from '../orders/entities/order.entity';
 import { Attendance, AttendanceStatus } from '../attendances/entities/attendance.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 
@@ -11,6 +12,8 @@ export class DashboardService {
   constructor(
     @InjectRepository(Student)
     private studentRepository: Repository<Student>,
+    @InjectRepository(StudentCourse)
+    private studentCoursesRepository: Repository<StudentCourse>,
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
     @InjectRepository(Attendance)
@@ -21,18 +24,17 @@ export class DashboardService {
 
   async getSummary() {
     const totalStudents = await this.studentRepository.count();
+    
+    // Active students: status = 'active'
     const activeStudents = await this.studentRepository.count({
       where: { status: StudentStatus.ACTIVE },
     });
     
-    // Find students with at least one unpaid order (debt status)
-    // 修复：之前使用 debt_status = 'debt'，但在 Entity 中 Enum 可能是 'debt' 或 'DEBT'，或者数据库中存储的是 'debt'
-    // 确认数据库中存储的值。通常 Enum 在数据库中以字符串存储。
-    // 如果 orderRepository.count 能用最好
+    // Arrears students: 
     const arrearsStudentsCount = await this.orderRepository
       .createQueryBuilder('order')
-      .where('order.debt_status = :status', { status: 'debt' })
-      .andWhere('order.status != :cancelled', { cancelled: OrderStatus.CANCELLED }) // 排除已取消的订单
+      .where('order.debt_status = :status', { status: DebtStatus.DEBT })
+      .andWhere('order.status != :cancelled', { cancelled: OrderStatus.CANCELLED })
       .select('COUNT(DISTINCT order.student_id)', 'count')
       .getRawOne();
       
@@ -45,12 +47,16 @@ export class DashboardService {
     const endOfMonth = new Date(startOfMonth);
     endOfMonth.setMonth(endOfMonth.getMonth() + 1);
 
-    const monthlyClassHours = await this.attendanceRepository.count({
-      where: {
-        attendance_date: Between(startOfMonth, endOfMonth),
-        status: AttendanceStatus.PRESENT,
-      },
-    });
+    // Monthly class hours: sum of hours_deducted in this month
+    const monthlyClassHoursResult = await this.attendanceRepository
+      .createQueryBuilder('attendance')
+      .select('SUM(attendance.hours_deducted)', 'sum')
+      .where('attendance.attendance_date >= :start', { start: startOfMonth })
+      .andWhere('attendance.attendance_date < :end', { end: endOfMonth })
+      .andWhere('attendance.status = :status', { status: AttendanceStatus.PRESENT })
+      .getRawOne();
+
+    const monthlyClassHours = parseFloat(monthlyClassHoursResult.sum || '0');
 
     return {
       totalStudents,
@@ -88,7 +94,6 @@ export class DashboardService {
     });
 
     // Total consumed fees (approximate based on subject price)
-    // 修复：之前可能因为没有正确 join 或者数据类型问题导致为 0
     const consumedFeesResult = await this.attendanceRepository
       .createQueryBuilder('attendance')
       .leftJoin('attendance.course', 'course')
@@ -104,5 +109,215 @@ export class DashboardService {
       totalConsumedCourses,
       totalConsumedClassFees,
     };
+  }
+
+  async getAttendanceTrend() {
+    // 获取过去 12 个月的签到数据（按月统计）
+    const now = new Date();
+    const months: Date[] = [];
+    for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push(d);
+    }
+
+    const monthlyData: any[] = [];
+    for (const month of months) {
+        const start = new Date(month.getFullYear(), month.getMonth(), 1);
+        const end = new Date(month.getFullYear(), month.getMonth() + 1, 1);
+        
+        const result = await this.attendanceRepository
+            .createQueryBuilder('attendance')
+            .select('SUM(attendance.hours_deducted)', 'sum')
+            .where('attendance.attendance_date >= :start', { start })
+            .andWhere('attendance.attendance_date < :end', { end })
+            .andWhere('attendance.status = :status', { status: AttendanceStatus.PRESENT })
+            .getRawOne();
+            
+        monthlyData.push({
+            date: `${month.getFullYear()}-${(month.getMonth() + 1).toString().padStart(2, '0')}`,
+            value: parseFloat(result.sum || '0'),
+            type: '月度消耗'
+        });
+    }
+
+    return monthlyData;
+  }
+
+  async getArrearsList() {
+      // 获取欠费学员名单：基于 Order 表的 debt_status
+      // 我们需要返回：学员姓名、科目名称、欠费金额（或者欠费数量？）
+      // 需求是“欠费数量”，对于 Order 来说可能是欠费金额 debt_amount
+      
+      const arrearsOrders = await this.orderRepository
+          .createQueryBuilder('order')
+          .leftJoinAndSelect('order.student', 'student')
+          .leftJoinAndSelect('order.subject', 'subject') // 主订单可能没有 subject
+          .leftJoinAndSelect('order.children', 'children') // 子订单有 subject
+          .leftJoinAndSelect('children.subject', 'childSubject')
+          .where('order.debt_status = :status', { status: DebtStatus.DEBT })
+          .andWhere('order.parent_id IS NULL')
+          .andWhere('order.status != :cancelled', { cancelled: OrderStatus.CANCELLED })
+          .getMany();
+          
+      // 整理数据
+      const list = arrearsOrders.map(order => {
+          // 如果是主订单，可能包含多个科目的子订单。欠费是针对主订单的。
+          // 我们可以列出所有涉及的科目
+          let subjectNames = order.subject?.name;
+          if (!subjectNames && order.children && order.children.length > 0) {
+              subjectNames = order.children.map(c => c.subject?.name).filter(Boolean).join(', ');
+          }
+          
+          return {
+              studentName: order.student?.name,
+              subjectName: subjectNames || '未知科目',
+              arrearsAmount: Number(order.debt_amount),
+              orderNo: order.order_no
+          };
+      });
+      
+      return list;
+  }
+
+  async getExpiringList() {
+      // 筛选即将续费的学员：剩余课时数量较少
+      // 这需要计算每个学员在每个科目下的剩余课时
+      
+      const threshold = 5; // 剩余少于 5 课时
+      const expiringList: any[] = [];
+      
+      // 1. 获取所有 Active 的 StudentCourse 记录
+      const studentCourses = await this.studentCoursesRepository.find({
+          where: { status: StudentCourseStatus.ACTIVE },
+          relations: ['student', 'course', 'course.subject']
+      });
+
+      // 2. 按 学员+科目 分组
+      const map = new Map<string, any>();
+      for (const sc of studentCourses) {
+          if (!sc.student || !sc.course || !sc.course.subject) continue;
+          const key = `${sc.student.id}-${sc.course.subject.id}`;
+          if (!map.has(key)) {
+              map.set(key, {
+                  student: sc.student,
+                  subject: sc.course.subject,
+                  studentId: sc.student.id,
+                  subjectId: sc.course.subject.id
+              });
+          }
+      }
+
+      // 3. 遍历计算
+      for (const item of map.values()) {
+          // 3.1 计算总购买 (Active + Completed + Transferred 的 子订单)
+          // 增加 TRANSFERRED 状态，确保已转让的订单也计入购买总量（因为它们关联的签到记录还在，需要抵消消耗）
+          const { sum: boughtSum } = await this.orderRepository
+              .createQueryBuilder('order')
+              .select('SUM(order.regular_courses + order.gift_courses)', 'sum')
+              .where('order.student_id = :studentId', { studentId: item.studentId })
+              .andWhere('order.subject_id = :subjectId', { subjectId: item.subjectId })
+              .andWhere('order.status IN (:...statuses)', { statuses: [OrderStatus.ACTIVE, OrderStatus.COMPLETED, OrderStatus.TRANSFERRED] })
+              .andWhere('order.parent_id IS NOT NULL')
+              .getRawOne();
+          
+          const bought = parseFloat(boughtSum || '0');
+
+          // 3.2 计算总消耗 (Present 的 签到)
+          const { sum: consumedSum } = await this.attendanceRepository
+              .createQueryBuilder('attendance')
+              .leftJoin('attendance.course', 'course')
+              .select('SUM(attendance.hours_deducted)', 'sum')
+              .where('attendance.student_id = :studentId', { studentId: item.studentId })
+              .andWhere('course.subject_id = :subjectId', { subjectId: item.subjectId })
+              .andWhere('attendance.status = :status', { status: AttendanceStatus.PRESENT })
+              .getRawOne();
+
+          const consumed = parseFloat(consumedSum || '0');
+          const remaining = bought - consumed;
+
+          // 3.3 判断是否即将续费 (0 <= 剩余 <= 5)
+          // 并且要确保有购买记录（bought > 0）
+          if (remaining >= 0 && remaining <= threshold && bought > 0) {
+              expiringList.push({
+                  studentName: item.student.name,
+                  subjectName: item.subject.name,
+                  remainingHours: remaining,
+                  studentId: item.studentId 
+              });
+          }
+      }
+      
+      return expiringList;
+  }
+
+  async getExceededList() {
+      // 获取课时上超（剩余课时为负）的学员名单
+      // 由于 StudentCourse 表中的数据可能不准确（受取消订单逻辑影响），
+      // 我们改为实时计算：剩余 = 总购买(Active) - 总消耗(Present)
+      
+      const exceededList: any[] = [];
+      
+      // 1. 获取所有 Active 的 StudentCourse 记录（作为要检查的 学员-科目 对）
+      const studentCourses = await this.studentCoursesRepository.find({
+          where: { status: StudentCourseStatus.ACTIVE },
+          relations: ['student', 'course', 'course.subject']
+      });
+
+      // 2. 按 学员+科目 分组，避免重复计算（因为一个科目可能有多个 Course，导致 StudentCourse 有多条）
+      const map = new Map<string, any>();
+      for (const sc of studentCourses) {
+          if (!sc.student || !sc.course || !sc.course.subject) continue;
+          const key = `${sc.student.id}-${sc.course.subject.id}`;
+          if (!map.has(key)) {
+              map.set(key, {
+                  student: sc.student,
+                  subject: sc.course.subject,
+                  studentId: sc.student.id,
+                  subjectId: sc.course.subject.id
+              });
+          }
+      }
+
+      // 3. 遍历计算
+      for (const item of map.values()) {
+          // 3.1 计算总购买 (Active + Completed + Transferred 的 子订单)
+          const { sum: boughtSum } = await this.orderRepository
+              .createQueryBuilder('order')
+              .select('SUM(order.regular_courses + order.gift_courses)', 'sum')
+              .where('order.student_id = :studentId', { studentId: item.studentId })
+              .andWhere('order.subject_id = :subjectId', { subjectId: item.subjectId })
+              .andWhere('order.status IN (:...statuses)', { statuses: [OrderStatus.ACTIVE, OrderStatus.COMPLETED, OrderStatus.TRANSFERRED] })
+              .andWhere('order.parent_id IS NOT NULL') // 只统计子订单，因为只有子订单有 subject_id 和 课时数
+              .getRawOne();
+          
+          const bought = parseFloat(boughtSum || '0');
+
+          // 3.2 计算总消耗 (Present 的 签到)
+          // 签到关联的是 course，我们需要找到该科目下的所有 course
+          // 可以通过 join course 来筛选 subject_id
+          const { sum: consumedSum } = await this.attendanceRepository
+              .createQueryBuilder('attendance')
+              .leftJoin('attendance.course', 'course')
+              .select('SUM(attendance.hours_deducted)', 'sum')
+              .where('attendance.student_id = :studentId', { studentId: item.studentId })
+              .andWhere('course.subject_id = :subjectId', { subjectId: item.subjectId })
+              .andWhere('attendance.status = :status', { status: AttendanceStatus.PRESENT })
+              .getRawOne();
+
+          const consumed = parseFloat(consumedSum || '0');
+          const remaining = bought - consumed;
+
+          // 3.3 判断是否超课时 (剩余 < 0)
+          if (remaining < 0) {
+              exceededList.push({
+                  studentName: item.student.name,
+                  subjectName: item.subject.name,
+                  exceededHours: Math.abs(remaining), // 返回正数表示超出的量
+                  remainingCourses: remaining // 原始负值
+              });
+          }
+      }
+
+      return exceededList;
   }
 }

@@ -36,7 +36,9 @@
   ],
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
+    "@ant-design/plots": "^2.6.8",
     "@ant-design/pro-components": "3.1.2-0",
+    "ahooks": "^3.9.6",
     "antd": "^6.2.2",
     "antd-style": "^4.1.0",
     "clsx": "^2.1.1",
@@ -44,7 +46,8 @@
     "rc-resize-observer": "^1.4.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "swagger-ui-dist": "^5.32.0"
+    "swagger-ui-dist": "^5.32.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@ant-design/pro-cli": "^3.3.0",
@@ -69,6 +72,7 @@
     "jest-environment-jsdom": "^30.0.5",
     "lint-staged": "^16.1.2",
     "mockjs": "^1.1.0",
+    "sonic-boom": "^4.2.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3",
     "umi-presets-pro": "^2.0.3",

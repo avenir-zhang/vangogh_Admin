@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query, BadRequestException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { Order } from './entities/order.entity';
 import { AuthGuard } from '@nestjs/passport';
@@ -31,10 +31,17 @@ export class OrdersController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateOrderDto: Partial<Order>) {
+  async update(@Param('id') id: string, @Body() updateOrderDto: Partial<Order>) {
       // 订单只能更新状态（如作废），其他信息一般不允许随意更改，特别是金额
       // 如果要支持更新，需要谨慎处理
-      return this.ordersService.update(+id, updateOrderDto);
+      try {
+          return await this.ordersService.update(+id, updateOrderDto);
+      } catch (err: any) {
+          if (err.message === 'ORDER_HAS_CONSUMPTION') {
+              throw new BadRequestException('订单已发生课时消耗，无法作废。请先撤销相关签到记录。');
+          }
+          throw err;
+      }
   }
 
   @Post(':id/supplement')
@@ -45,6 +52,11 @@ export class OrdersController {
   @Patch(':id/expire-date')
   updateExpireDate(@Param('id') id: string, @Body() body: { expire_date: string | null }) {
       return this.ordersService.updateExpireDate(+id, body.expire_date);
+  }
+
+  @Post(':id/transfer')
+  transfer(@Param('id') id: string, @Body() body: { targetStudentId: number, subjectId?: number, amount?: number }) {
+      return this.ordersService.transfer(+id, body.targetStudentId, body.subjectId ? { subjectId: body.subjectId, amount: body.amount } : undefined);
   }
 
   @Delete(':id')

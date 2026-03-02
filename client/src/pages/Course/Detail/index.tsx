@@ -179,6 +179,8 @@ const CourseDetail: React.FC = () => {
           setIsModalVisible(false);
           form.resetFields();
           studentActionRef.current?.reload();
+          // 重新获取课程信息以更新人数
+          fetchCourse();
       } catch (error) {
           message.error('添加学员失败');
       }
@@ -191,6 +193,8 @@ const CourseDetail: React.FC = () => {
           });
           message.success('移除学员成功');
           studentActionRef.current?.reload();
+          // 重新获取课程信息以更新人数
+          fetchCourse();
       } catch (error) {
           message.error('移除学员失败');
       }
@@ -274,7 +278,15 @@ const CourseDetail: React.FC = () => {
                     };
                   }}
                   columns={[
-                    { title: '学员姓名', dataIndex: ['student', 'name'] },
+                    { 
+                        title: '学员姓名', 
+                        dataIndex: ['student', 'name'],
+                        render: (_, record) => (
+                            <a onClick={() => history.push(`/academic/student/detail/${record.student.id}`)}>
+                                {record.student.name}
+                            </a>
+                        )
+                    },
                     { title: '已消耗课时', dataIndex: 'total_consumed', render: (val) => Number(val).toFixed(2) },
                     { 
                         title: '剩余课时', 
@@ -337,7 +349,15 @@ const CourseDetail: React.FC = () => {
                     };
                   }}
                   columns={[
-                    { title: '学员姓名', dataIndex: ['student', 'name'] },
+                    { 
+                        title: '学员姓名', 
+                        dataIndex: ['student', 'name'],
+                        render: (_, record) => (
+                            <a onClick={() => history.push(`/academic/student/detail/${record.student?.id}`)}>
+                                {record.student?.name}
+                            </a>
+                        )
+                    },
                     { title: '签到时间', dataIndex: 'attendance_date', valueType: 'date' },
                     { title: '状态', dataIndex: 'status', valueEnum: {
                       present: { text: '出勤', status: 'Success' },

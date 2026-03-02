@@ -11,12 +11,14 @@ export enum OrderType {
   NEW = 'new',
   RENEW = 'renew',
   SUPPLEMENT = 'supplement',
+  TRANSFER = 'transfer',
 }
 
 export enum OrderStatus {
   ACTIVE = 'active',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
+  TRANSFERRED = 'transferred',
 }
 
 @Entity('orders')
@@ -115,6 +117,9 @@ export class Order {
     default: OrderStatus.ACTIVE,
   })
   status: OrderStatus;
+
+  @Column({ nullable: true })
+  source_order_id: number;
 
   @CreateDateColumn()
   created_at: Date;
