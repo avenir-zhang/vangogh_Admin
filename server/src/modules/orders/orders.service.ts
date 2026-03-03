@@ -127,20 +127,23 @@ export class OrdersService {
         where.status = Not(excludeStatus);
     }
 
-    // 只查询主订单 (parent_id IS NULL)
-    // 移除 where.id = -1 这种逻辑，因为 id 必须是数字，如果是无效查询，应该直接返回空数组
-    // 上面的 Promise.resolve([]) 已经处理了
-    
-    // 检查其他可能导致 500 的参数，比如分页参数是否正确
-    // current, pageSize 已经被解构出去了，不会进入 find 的 options
-    
-    // 确保 relations 存在
-    
     return this.ordersRepository.find({ 
       where, 
       relations: ['student', 'children', 'children.subject'], 
       order: { created_at: 'DESC' }
     });
+  }
+
+  async findSubOrdersByStudent(studentId: number) {
+      return this.ordersRepository.find({
+          where: { 
+              student_id: studentId,
+              parent_id: Not(IsNull()),
+              status: Not(OrderStatus.CANCELLED) // 排除已取消的订单
+          },
+          relations: ['subject'],
+          order: { created_at: 'DESC' }
+      });
   }
 
   findOne(id: number) {

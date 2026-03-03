@@ -20,7 +20,7 @@ export type GlobalHeaderRightProps = {
 export const AvatarName = () => {
   const { initialState } = useModel('@@initialState');
   const { currentUser } = initialState || {};
-  return <span className="anticon">{currentUser?.name}</span>;
+  return <span className="anticon">{currentUser?.name || currentUser?.username}</span>;
 };
 
 const useStyles = createStyles(({ token }) => {
@@ -49,7 +49,12 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
    * 退出登录，并且将当前的 url 保存
    */
   const loginOut = async () => {
-    await outLogin();
+    localStorage.removeItem('token');
+    try {
+        await outLogin();
+    } catch (e) {
+        console.error('Logout failed:', e);
+    }
     const { search, pathname } = window.location;
     const urlParams = new URL(window.location.href).searchParams;
     const searchParams = new URLSearchParams({
@@ -78,6 +83,10 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
       loginOut();
       return;
     }
+    // info item is just for display, do nothing
+    if (key === 'info') {
+        return;
+    }
     history.push(`/account/${key}`);
   };
 
@@ -99,28 +108,26 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
 
   const { currentUser } = initialState;
 
-  if (!currentUser || !currentUser.name) {
+  if (!currentUser || (!currentUser.name && !currentUser.username)) {
     return loading;
   }
 
-  const menuItems = [
-    ...(menu
-      ? [
-          {
-            key: 'center',
-            icon: <UserOutlined />,
-            label: '个人中心',
-          },
-          {
-            key: 'settings',
-            icon: <SettingOutlined />,
-            label: '个人设置',
-          },
-          {
-            type: 'divider' as const,
-          },
-        ]
-      : []),
+  const menuItems: MenuProps['items'] = [
+    {
+        key: 'info',
+        icon: <UserOutlined />,
+        label: (
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontWeight: 500 }}>{currentUser.name || currentUser.username}</span>
+                <span style={{ fontSize: 12, color: '#888' }}>
+                    {currentUser.user_role?.display_name || '普通用户'}
+                </span>
+            </div>
+        ),
+    },
+    {
+      type: 'divider' as const,
+    },
     {
       key: 'logout',
       icon: <LogoutOutlined />,

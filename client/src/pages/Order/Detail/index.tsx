@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { PageContainer, ProDescriptions, ProTable } from '@ant-design/pro-components';
 import { Card, Button, message, Modal, InputNumber, Form, Select, Popconfirm } from 'antd';
-import { useParams, request, history } from '@umijs/max';
+import { useParams, request, history, useAccess } from '@umijs/max';
+import AccessBtn from '@/components/AccessBtn';
 
 const OrderDetail: React.FC = () => {
   const params = useParams<{ id: string }>();
   const [order, setOrder] = useState<any>(null);
+  const access = useAccess();
   const [isSupplementModalOpen, setIsSupplementModalOpen] = useState(false);
   const [supplementAmount, setSupplementAmount] = useState<number>(0);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -132,9 +134,11 @@ const OrderDetail: React.FC = () => {
       title={`订单详情 - ${order.order_no}`}
       extra={[
         order.debt_status === 'debt' && (
-          <Button key="supplement" type="primary" onClick={() => setIsSupplementModalOpen(true)}>
-            补缴欠费
-          </Button>
+          <AccessBtn key="supplement" access="canSupplementOrder">
+              <Button type="primary" onClick={() => setIsSupplementModalOpen(true)}>
+                补缴欠费
+              </Button>
+          </AccessBtn>
         ),
       ]}
     >
@@ -234,69 +238,73 @@ const OrderDetail: React.FC = () => {
                     title: '操作',
                     valueType: 'option',
                     render: (text, record, _, action) => [
-                        <a
-                            key="editable"
-                            onClick={() => {
-                                action?.startEditable?.(record.id);
-                            }}
-                        >
-                            修改有效期
-                        </a>,
-                        <a
-                            key="transfer"
-                            onClick={() => {
-                                setTransferTargetOrder(record);
-                                setIsTransferModalOpen(true);
-                            }}
-                        >
-                            转让
-                        </a>,
-                        record.order_type === 'gift' ? (
-                            <Popconfirm
-                                key="revoke"
-                                title="确定退课吗？这将清空剩余赠送课时。"
-                                onConfirm={async () => {
-                                    try {
-                                        await request(`/api/orders/${record.id}/revoke-gift`, {
-                                            method: 'POST',
-                                        });
-                                        message.success('退课成功');
-                                        fetchOrder();
-                                    } catch (error) {
-                                        message.error('退课失败');
-                                    }
-                                }}
-                            >
-                                <a style={{ color: '#ff4d4f' }}>退课</a>
-                            </Popconfirm>
-                        ) : (
+                        <AccessBtn key="editable" access="canEditOrderExpire">
                             <a
-                                key="refund"
                                 onClick={() => {
-                                    const regular = Number(record.regular_courses || 0);
-                                    if (regular <= 0) {
-                                        message.error('正价课时小于等于0，不允许退费');
-                                        return;
-                                    }
-                                    if (record.order_type === 'transfer') {
-                                        message.error('转让订单不允许退费');
-                                        return;
-                                    }
-                                    setRefundTargetOrder(record);
-                                    setIsRefundModalOpen(true);
-                                }}
-                                style={{
-                                    color: (Number(record.regular_courses || 0) <= 0 || record.order_type === 'transfer') ? '#999' : undefined,
-                                    cursor: (Number(record.regular_courses || 0) <= 0 || record.order_type === 'transfer') ? 'not-allowed' : 'pointer',
+                                    action?.startEditable?.(record.id);
                                 }}
                             >
-                                退费
+                                修改有效期
                             </a>
+                        </AccessBtn>,
+                        <AccessBtn key="transfer" access="canTransferOrder">
+                            <a
+                                onClick={() => {
+                                    setTransferTargetOrder(record);
+                                    setIsTransferModalOpen(true);
+                                }}
+                            >
+                                转让
+                            </a>
+                        </AccessBtn>,
+                        record.order_type === 'gift' ? (
+                            <AccessBtn key="revoke" access="canRevokeOrder">
+                                <Popconfirm
+                                    title="确定退课吗？这将清空剩余赠送课时。"
+                                    onConfirm={async () => {
+                                        try {
+                                            await request(`/api/orders/${record.id}/revoke-gift`, {
+                                                method: 'POST',
+                                            });
+                                            message.success('退课成功');
+                                            fetchOrder();
+                                        } catch (error) {
+                                            message.error('退课失败');
+                                        }
+                                    }}
+                                >
+                                    <a style={{ color: '#ff4d4f' }}>退课</a>
+                                </Popconfirm>
+                            </AccessBtn>
+                        ) : (
+                            <AccessBtn key="refund" access="canRefundOrder">
+                                <a
+                                    onClick={() => {
+                                        const regular = Number(record.regular_courses || 0);
+                                        if (regular <= 0) {
+                                            message.error('正价课时小于等于0，不允许退费');
+                                            return;
+                                        }
+                                        if (record.order_type === 'transfer') {
+                                            message.error('转让订单不允许退费');
+                                            return;
+                                        }
+                                        setRefundTargetOrder(record);
+                                        setIsRefundModalOpen(true);
+                                    }}
+                                    style={{
+                                        color: (Number(record.regular_courses || 0) <= 0 || record.order_type === 'transfer') ? '#999' : undefined,
+                                        cursor: (Number(record.regular_courses || 0) <= 0 || record.order_type === 'transfer') ? 'not-allowed' : 'pointer',
+                                    }}
+                                >
+                                    退费
+                                </a>
+                            </AccessBtn>
                         ),
                     ],
                 },
             ]}
-            editable={{
+            editable={access.canEditOrderExpire ? {
                 type: 'single',
                 onSave: async (key, row) => {
                     await request(`/api/orders/${row.id}/expire-date`, {
@@ -306,7 +314,7 @@ const OrderDetail: React.FC = () => {
                     message.success('修改成功');
                     fetchOrder();
                 },
-            }}
+            } : undefined}
         />
       </Card>
 

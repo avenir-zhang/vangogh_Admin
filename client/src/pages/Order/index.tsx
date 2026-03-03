@@ -3,7 +3,8 @@ import type { ProColumns, ActionType } from '@ant-design/pro-components';
 import { ProTable, DrawerForm, ProFormText, ProFormSelect, ProFormDigit, ProFormDatePicker, ProFormMoney } from '@ant-design/pro-components';
 import { Button, message, Popconfirm, Tabs, Tooltip } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { request, history } from '@umijs/max';
+import { request, history, useAccess } from '@umijs/max';
+import AccessBtn from '@/components/AccessBtn';
 
 type OrderItem = {
   id: number;
@@ -29,6 +30,7 @@ type OrderItem = {
 
 const OrderList: React.FC = () => {
   const actionRef = useRef<ActionType>(null);
+  const access = useAccess();
   const [students, setStudents] = useState<{ label: string; value: number }[]>([]);
   const [subjects, setSubjects] = useState<{ label: string; value: number }[]>([]);
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -128,6 +130,7 @@ const OrderList: React.FC = () => {
       title: '正价课时',
       dataIndex: 'regular_courses',
       valueType: 'digit',
+      search: false,
       render: (_, record) => {
           // 汇总子订单课时
           if (record.children && record.children.length > 0) {
@@ -140,6 +143,7 @@ const OrderList: React.FC = () => {
       title: '赠送课时',
       dataIndex: 'gift_courses',
       valueType: 'digit',
+      search: false,
       render: (_, record) => {
           if (record.children && record.children.length > 0) {
               return record.children.reduce((sum: number, c: OrderItem) => sum + (c.gift_courses || 0), 0);
@@ -151,11 +155,13 @@ const OrderList: React.FC = () => {
       title: '应交费用',
       dataIndex: 'total_fee',
       valueType: 'money',
+      search: false,
     },
     {
       title: '实交费用',
       dataIndex: 'paid_fee',
       valueType: 'money',
+      search: false,
     },
     {
       title: '欠费金额',
@@ -163,6 +169,7 @@ const OrderList: React.FC = () => {
       valueType: 'money',
       editable: false,
       hideInForm: true,
+      search: false,
     },
     {
       title: '欠费状态',
@@ -231,29 +238,32 @@ const OrderList: React.FC = () => {
         // 如果订单已作废，只显示详情
         if (record.status === 'cancelled') {
              return [
+                <AccessBtn key="detail" access="canViewOrder">
                  <a
-                    key="detail"
                     onClick={() => {
                         history.push(`/finance/order/detail/${record.id}`);
                     }}
                     >
                     详情
                 </a>
+                </AccessBtn>
              ];
         }
 
         return [
+        <AccessBtn key="detail" access="canViewOrder">
         <a
-          key="detail"
           onClick={() => {
             history.push(`/finance/order/detail/${record.id}`);
           }}
         >
           详情
-        </a>,
+        </a>
+        </AccessBtn>,
         // 订单创建后不建议随意修改，只允许补缴或作废
         // <a key="editable" ...> 编辑 </a>
-        (() => {
+        <AccessBtn key="delete" access="canDeleteOrder">
+        {(() => {
             const hasConsumption = record.children?.some(c => 
                 (Number(c.consumed_regular_courses) || 0) > 0 || 
                 (Number(c.consumed_gift_courses) || 0) > 0
@@ -266,7 +276,7 @@ const OrderList: React.FC = () => {
                     ? "订单包含已转让子订单，无法作废" 
                     : "订单已发生消耗，无法作废";
                 return (
-                    <Tooltip key="delete" title={title}>
+                    <Tooltip title={title}>
                         <span style={{ color: 'rgba(0,0,0,0.25)', cursor: 'not-allowed' }}>作废</span>
                     </Tooltip>
                 );
@@ -274,7 +284,6 @@ const OrderList: React.FC = () => {
 
             return (
                 <Popconfirm
-                key="delete"
                 title="确定作废吗？"
                 onConfirm={async () => {
                     await request(`/api/orders/${record.id}`, { 
@@ -288,7 +297,8 @@ const OrderList: React.FC = () => {
                 <a>作废</a>
                 </Popconfirm>
             );
-        })(),
+        })()}
+        </AccessBtn>,
       ]},
     },
   ];
@@ -345,6 +355,7 @@ const OrderList: React.FC = () => {
       }}
       headerTitle="订单列表"
       toolBarRender={() => [
+        <AccessBtn key="create" access="canCreateOrder">
         <Button
           key="button"
           icon={<PlusOutlined />}
@@ -354,7 +365,8 @@ const OrderList: React.FC = () => {
           type="primary"
         >
           新建
-        </Button>,
+        </Button>
+        </AccessBtn>,
       ]}
     />
     <DrawerForm<OrderItem>

@@ -35,6 +35,9 @@ dependencies:
   '@types/passport-jwt':
     specifier: ^4.0.1
     version: 4.0.1
+  '@types/uuid':
+    specifier: ^11.0.0
+    version: 11.0.0
   bcrypt:
     specifier: ^6.0.0
     version: 6.0.0
@@ -71,6 +74,9 @@ dependencies:
   typeorm:
     specifier: ^0.3.28
     version: 0.3.28(mysql2@3.18.2)(ts-node@10.9.2)
+  uuid:
+    specifier: ^13.0.0
+    version: 13.0.0
 
 devDependencies:
   '@eslint/eslintrc':
@@ -1798,6 +1804,13 @@ packages:
       '@types/methods': 1.1.4
       '@types/superagent': 8.1.9
     dev: true
+
+  /@types/uuid@11.0.0:
+    resolution: {integrity: sha512-HVyk8nj2m+jcFRNazzqyVKiZezyhDKrGUA3jlEcg/nZ6Ms+qHwocba1Y/AaVaznJTAM9xpdFSh+ptbNrhOGvZA==}
+    deprecated: This is a stub types definition. uuid provides its own type definitions, so you do not need this installed.
+    dependencies:
+      uuid: 13.0.0
+    dev: false
 
   /@types/validator@13.15.10:
     resolution: {integrity: sha512-T8L6i7wCuyoK8A/ZeLYt1+q0ty3Zb9+qbSSvrIVitzT3YjZqkTZ40IbRsPanlB4h1QB3JVL1SYCdR6ngtFYcuA==}
@@ -5915,6 +5928,11 @@ packages:
 
   /uuid@11.1.0:
     resolution: {integrity: sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A==}
+    hasBin: true
+    dev: false
+
+  /uuid@13.0.0:
+    resolution: {integrity: sha512-XQegIaBTVUjSHliKqcnFqYypAd4S+WCYt5NIeRs6w/UAry7z8Y9j5ZwRRL4kzq9U3sD6v+85er9FvkEaBpji2w==}
     hasBin: true
     dev: false
 

@@ -11,6 +11,8 @@ import { Course } from './modules/courses/entities/course.entity';
 import { Order } from './modules/orders/entities/order.entity';
 import { Attendance } from './modules/attendances/entities/attendance.entity';
 import { StudentCourse } from './modules/students/entities/student-course.entity';
+import { Role } from './modules/access-control/entities/role.entity';
+import { Permission } from './modules/access-control/entities/permission.entity';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { StudentsModule } from './modules/students/students.module';
@@ -20,6 +22,9 @@ import { CoursesModule } from './modules/courses/courses.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { AttendancesModule } from './modules/attendances/attendances.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { AccessControlModule } from './modules/access-control/access-control.module';
+import { ShareModule } from './modules/share/share.module';
+import { ShareLink } from './modules/share/entities/share-link.entity';
 
 @Module({
   imports: [
@@ -36,7 +41,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
         username: configService.get<string>('DB_USERNAME', 'root'),
         password: configService.get<string>('DB_PASSWORD', ''),
         database: configService.get<string>('DB_DATABASE', 'vangogh_db'),
-        entities: [User, Student, Teacher, Subject, Course, Order, Attendance, StudentCourse],
+        entities: [User, Student, Teacher, Subject, Course, Order, Attendance, StudentCourse, Role, Permission, ShareLink],
         synchronize: true,
       }),
       inject: [ConfigService],
@@ -50,6 +55,8 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     OrdersModule,
     AttendancesModule,
     DashboardModule,
+    AccessControlModule,
+    ShareModule,
   ],
   controllers: [AppController],
   providers: [AppService],

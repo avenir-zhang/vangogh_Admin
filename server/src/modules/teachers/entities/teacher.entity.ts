@@ -48,4 +48,7 @@ export class Teacher {
 
   @CreateDateColumn()
   created_at: Date;
+
+  @Column({ nullable: true })
+  user_id: number;
 }

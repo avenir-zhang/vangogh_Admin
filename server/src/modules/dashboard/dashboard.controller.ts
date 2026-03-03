@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards, Query, Request } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -41,5 +41,24 @@ export class DashboardController {
   async getExceededList() {
     const data = await this.dashboardService.getExceededList();
     return { success: true, data };
+  }
+  
+  @Get('teacher-stats')
+  async getTeacherStats(@Query() query: any, @Request() req) {
+    const { start_date, end_date } = query;
+    const user = req.user;
+    return { 
+        success: true, 
+        data: await this.dashboardService.getTeacherStats(start_date, end_date, user) 
+    };
+  }
+
+  @Get('subject-stats')
+  async getSubjectStats(@Query() query: any) {
+    const { start_date, end_date } = query;
+    return { 
+        success: true, 
+        data: await this.dashboardService.getSubjectStats(start_date, end_date) 
+    };
   }
 }

@@ -11,6 +11,10 @@ export class UsersService {
     private usersRepository: Repository<User>,
   ) {}
 
+  async findAll() {
+      return this.usersRepository.find({ relations: ['user_role'] });
+  }
+
   async create(user: Partial<User>): Promise<User> {
     if (!user.password_hash) {
       throw new Error('Password is required');
@@ -25,11 +29,41 @@ export class UsersService {
     return this.usersRepository.save(newUser);
   }
 
+  async update(id: number, updateUserDto: any): Promise<User> {
+    const user = await this.usersRepository.findOne({ where: { id } });
+    if (!user) {
+        throw new Error('User not found');
+    }
+    
+    if (updateUserDto.password_hash) {
+        const salt = await bcrypt.genSalt();
+        const hashedPassword = await bcrypt.hash(updateUserDto.password_hash, salt);
+        user.password_hash = hashedPassword;
+    }
+    
+    if (updateUserDto.role_id) {
+        user.role_id = updateUserDto.role_id;
+    }
+
+    if (updateUserDto.username) {
+        user.username = updateUserDto.username;
+    }
+    
+    return this.usersRepository.save(user);
+  }
+
+  async remove(id: number): Promise<void> {
+      await this.usersRepository.delete(id);
+  }
+
   async findOne(username: string): Promise<User | null> {
     return this.usersRepository.findOne({ where: { username } });
   }
 
   async findById(id: number): Promise<User | null> {
-    return this.usersRepository.findOne({ where: { id } });
+    return this.usersRepository.findOne({ 
+        where: { id },
+        relations: ['user_role', 'user_role.permissions']
+    });
   }
 }

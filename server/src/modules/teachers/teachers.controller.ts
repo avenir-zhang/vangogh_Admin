@@ -13,8 +13,8 @@ export class TeachersController {
   }
 
   @Get()
-  findAll(@Query('search') search?: string) {
-    return this.teachersService.findAll(search);
+  findAll(@Query() query: any) {
+    return this.teachersService.findAll(query);
   }
 
   @Get(':id')

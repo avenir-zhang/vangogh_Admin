@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, Like } from 'typeorm';
 import { Course } from './entities/course.entity';
 import { StudentCourse } from '../students/entities/student-course.entity';
 import { Attendance } from '../attendances/entities/attendance.entity';
@@ -30,18 +30,42 @@ export class CoursesService {
     return this.coursesRepository.save(course);
   }
 
-  findAll(start_date?: string, end_date?: string) {
+  findAll(query?: any) {
+    const { name, subject_id, teacher_id, schedule_type, status, start_date, end_date } = query || {};
+    const where: any = {};
+    
+    if (name) {
+      where.name = Like(`%${name}%`);
+    }
+    if (subject_id) {
+      where.subject_id = subject_id;
+    }
+    if (teacher_id) {
+      where.teacher_id = teacher_id;
+    }
+    if (schedule_type) {
+      where.schedule_type = schedule_type;
+    }
+    if (status) {
+      where.status = status;
+    }
+
     if (start_date && end_date) {
-      // 查询所有在时间范围内有效的课程
-      // 课程开始时间 <= 查询结束时间 AND 课程结束时间 >= 查询开始时间
+      // 如果指定了日期范围，查询在该范围内有效的课程
+      // 即：课程开始时间 <= 查询结束时间 AND 课程结束时间 >= 查询开始时间
       return this.coursesRepository.createQueryBuilder('course')
         .leftJoinAndSelect('course.subject', 'subject')
         .leftJoinAndSelect('course.teacher', 'teacher')
         .where('course.start_date <= :end_date', { end_date })
         .andWhere('course.end_date >= :start_date', { start_date })
+        .andWhere(where) // 合并其他查询条件
         .getMany();
     }
-    return this.coursesRepository.find({ relations: ['subject', 'teacher'] });
+    
+    return this.coursesRepository.find({ 
+        where, 
+        relations: ['subject', 'teacher'] 
+    });
   }
 
   findOne(id: number) {

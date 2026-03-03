@@ -1,4 +1,5 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Role } from '../../access-control/entities/role.entity';
 
 export enum UserRole {
   ADMIN = 'admin',
@@ -30,6 +31,13 @@ export class User {
   })
   role: UserRole;
 
+  @ManyToOne(() => Role)
+  @JoinColumn({ name: 'role_id' })
+  user_role: Role;
+
+  @Column({ nullable: true })
+  role_id: number;
+
   @Column({
     type: 'enum',
     enum: UserStatus,
@@ -42,4 +50,7 @@ export class User {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @Column({ nullable: true })
+  teacher_id: number;
 }

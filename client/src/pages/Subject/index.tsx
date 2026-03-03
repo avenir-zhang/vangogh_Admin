@@ -3,7 +3,8 @@ import type { ProColumns, ActionType } from '@ant-design/pro-components';
 import { ProTable, DrawerForm, ProFormText, ProFormDigit, ProFormSelect } from '@ant-design/pro-components';
 import { Button, message, Popconfirm } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { request } from '@umijs/max';
+import { request, useAccess } from '@umijs/max';
+import AccessBtn from '@/components/AccessBtn';
 
 type SubjectItem = {
   id: number;
@@ -16,6 +17,7 @@ const SubjectList: React.FC = () => {
   const actionRef = useRef<ActionType>(null);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [currentRow, setCurrentRow] = useState<SubjectItem | undefined>(undefined);
+  const access = useAccess();
 
   const columns: ProColumns<SubjectItem>[] = [
     {
@@ -26,6 +28,7 @@ const SubjectList: React.FC = () => {
       title: '课程价格',
       dataIndex: 'price',
       valueType: 'money',
+      search: false,
     },
     {
       title: '状态',
@@ -39,26 +42,28 @@ const SubjectList: React.FC = () => {
       title: '操作',
       valueType: 'option',
       render: (text, record, _, action) => [
-        <a
-          key="editable"
-          onClick={() => {
-            setCurrentRow(record);
-            setDrawerVisible(true);
-          }}
-        >
-          编辑
-        </a>,
-        <Popconfirm
-          key="delete"
-          title="确定删除吗？"
-          onConfirm={async () => {
-            await request(`/api/subjects/${record.id}`, { method: 'DELETE' });
-            message.success('删除成功');
-            actionRef.current?.reload();
-          }}
-        >
-          <a>删除</a>
-        </Popconfirm>,
+        <AccessBtn key="editable" access="canEditSubject">
+          <a
+            onClick={() => {
+              setCurrentRow(record);
+              setDrawerVisible(true);
+            }}
+          >
+            编辑
+          </a>
+        </AccessBtn>,
+        <AccessBtn key="delete" access="canDeleteSubject">
+          <Popconfirm
+            title="确定删除吗？"
+            onConfirm={async () => {
+              await request(`/api/subjects/${record.id}`, { method: 'DELETE' });
+              message.success('删除成功');
+              actionRef.current?.reload();
+            }}
+          >
+            <a>删除</a>
+          </Popconfirm>
+        </AccessBtn>,
       ],
     },
   ];
@@ -70,7 +75,12 @@ const SubjectList: React.FC = () => {
       actionRef={actionRef}
       cardBordered
       request={async (params) => {
-        const msg = await request('/api/subjects');
+        const { current, pageSize, ...search } = params;
+        const msg = await request('/api/subjects', {
+          params: {
+            ...search,
+          },
+        });
         return {
           data: msg,
           success: true,
@@ -85,20 +95,23 @@ const SubjectList: React.FC = () => {
         },
       }}
       rowKey="id"
-      search={false}
+      search={{
+        labelWidth: 'auto',
+      }}
       headerTitle="科目列表"
       toolBarRender={() => [
-        <Button
-          key="button"
-          icon={<PlusOutlined />}
-          onClick={() => {
-            setCurrentRow(undefined);
-            setDrawerVisible(true);
-          }}
-          type="primary"
-        >
-          新建
-        </Button>,
+        <AccessBtn key="button" access="canCreateSubject">
+          <Button
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setCurrentRow(undefined);
+              setDrawerVisible(true);
+            }}
+            type="primary"
+          >
+            新建
+          </Button>
+        </AccessBtn>,
       ]}
     />
     <DrawerForm<SubjectItem>

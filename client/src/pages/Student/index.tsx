@@ -3,7 +3,8 @@ import type { ProColumns, ActionType } from '@ant-design/pro-components';
 import { ProTable, DrawerForm, ProFormText, ProFormSelect, ProFormDatePicker, ProFormTextArea } from '@ant-design/pro-components';
 import { Button, message, Popconfirm } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { request, history } from '@umijs/max';
+import { request, history, useAccess } from '@umijs/max';
+import AccessBtn from '@/components/AccessBtn';
 
 type StudentItem = {
   id: number;
@@ -26,6 +27,7 @@ const StudentList: React.FC = () => {
   const actionRef = useRef<ActionType>(null);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [currentRow, setCurrentRow] = useState<StudentItem | undefined>(undefined);
+  const access = useAccess();
 
   const columns: ProColumns<StudentItem>[] = [
     {
@@ -68,10 +70,12 @@ const StudentList: React.FC = () => {
     {
       title: '紧急联系人',
       dataIndex: 'emergency_contact',
+      search: false,
     },
     {
       title: '联系电话',
       dataIndex: 'emergency_phone',
+      search: false,
     },
     {
       title: '注册时间',
@@ -110,15 +114,16 @@ const StudentList: React.FC = () => {
           >
             详情
           </a>,
-          <a
-            key="editable"
-            onClick={() => {
-              setCurrentRow(record);
-              setDrawerVisible(true);
-            }}
-          >
-            编辑
-          </a>,
+          <AccessBtn key="editable" access="canEditStudent">
+            <a
+              onClick={() => {
+                setCurrentRow(record);
+                setDrawerVisible(true);
+              }}
+            >
+              编辑
+            </a>
+          </AccessBtn>,
         ];
 
         if (isDeleted) {
@@ -137,17 +142,18 @@ const StudentList: React.FC = () => {
            );
         } else {
             actions.push(
-                <Popconfirm
-                key="delete"
-                title="确定删除吗？"
-                onConfirm={async () => {
-                    await request(`/api/students/${record.id}`, { method: 'DELETE' });
-                    message.success('删除成功');
-                    actionRef.current?.reload();
-                }}
-                >
-                <a>删除</a>
-                </Popconfirm>
+                <AccessBtn key="delete" access="canDeleteStudent">
+                  <Popconfirm
+                    title="确定删除吗？"
+                    onConfirm={async () => {
+                        await request(`/api/students/${record.id}`, { method: 'DELETE' });
+                        message.success('删除成功');
+                        actionRef.current?.reload();
+                    }}
+                  >
+                    <a style={{ color: 'red' }}>删除</a>
+                  </Popconfirm>
+                </AccessBtn>
             );
         }
         return actions;
@@ -212,17 +218,18 @@ const StudentList: React.FC = () => {
       dateFormatter="string"
       headerTitle="学员列表"
       toolBarRender={() => [
-        <Button
-          key="button"
-          icon={<PlusOutlined />}
-          onClick={() => {
-            setCurrentRow(undefined);
-            setDrawerVisible(true);
-          }}
-          type="primary"
-        >
-          新建
-        </Button>,
+        <AccessBtn key="button" access="canCreateStudent">
+          <Button
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setCurrentRow(undefined);
+              setDrawerVisible(true);
+            }}
+            type="primary"
+          >
+            新建
+          </Button>
+        </AccessBtn>,
       ]}
     />
     <DrawerForm<StudentItem>

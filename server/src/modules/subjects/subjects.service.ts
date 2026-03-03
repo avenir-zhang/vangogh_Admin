@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Like } from 'typeorm';
 import { Subject } from './entities/subject.entity';
 
 @Injectable()
@@ -15,8 +15,18 @@ export class SubjectsService {
     return this.subjectsRepository.save(subject);
   }
 
-  findAll() {
-    return this.subjectsRepository.find();
+  findAll(query?: any) {
+    const { name, status } = query || {};
+    const where: any = {};
+    
+    if (name) {
+      where.name = Like(`%${name}%`);
+    }
+    if (status) {
+      where.status = status;
+    }
+
+    return this.subjectsRepository.find({ where });
   }
 
   findOne(id: number) {
@@ -28,6 +38,6 @@ export class SubjectsService {
   }
 
   remove(id: number) {
-    return this.subjectsRepository.delete(id);
+    return this.subjectsRepository.softDelete(id);
   }
 }

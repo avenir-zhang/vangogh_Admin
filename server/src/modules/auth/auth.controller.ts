@@ -11,4 +11,9 @@ export class AuthController {
   async login(@Request() req) {
     return this.authService.login(req.user);
   }
+  
+  @Post('outLogin')
+  async logout() {
+      return { success: true };
+  }
 }

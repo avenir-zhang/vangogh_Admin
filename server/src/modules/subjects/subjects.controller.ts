@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query } from '@nestjs/common';
 import { SubjectsService } from './subjects.service';
 import { Subject } from './entities/subject.entity';
 import { AuthGuard } from '@nestjs/passport';
@@ -14,8 +14,8 @@ export class SubjectsController {
   }
 
   @Get()
-  findAll() {
-    return this.subjectsService.findAll();
+  findAll(@Query() query: any) {
+    return this.subjectsService.findAll(query);
   }
 
   @Get(':id')

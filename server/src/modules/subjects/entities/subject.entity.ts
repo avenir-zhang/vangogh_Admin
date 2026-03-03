@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, DeleteDateColumn } from 'typeorm';
 
 export enum SubjectStatus {
   ACTIVE = 'active',
@@ -22,4 +22,7 @@ export class Subject {
     default: SubjectStatus.ACTIVE,
   })
   status: SubjectStatus;
+
+  @DeleteDateColumn()
+  deletedAt: Date;
 }

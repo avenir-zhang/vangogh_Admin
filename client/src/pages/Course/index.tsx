@@ -3,8 +3,9 @@ import type { ProColumns, ActionType } from '@ant-design/pro-components';
 import { ProTable, DrawerForm, ProFormText, ProFormSelect, ProFormDigit, ProFormDatePicker, ProFormTimePicker, ProFormDependency } from '@ant-design/pro-components';
 import { Button, message, Popconfirm, Modal, DatePicker, Select, Table, InputNumber, Tag } from 'antd';
 import { PlusOutlined, FormOutlined } from '@ant-design/icons';
-import { request, history } from '@umijs/max';
+import { request, history, useAccess } from '@umijs/max';
 import dayjs from 'dayjs';
+import AccessBtn from '@/components/AccessBtn';
 
 type CourseItem = {
   id: number;
@@ -26,6 +27,7 @@ type CourseItem = {
 
 const CourseList: React.FC = () => {
   const actionRef = useRef<ActionType>(null);
+  const access = useAccess();
   const [subjects, setSubjects] = useState<{ label: string; value: number }[]>([]);
   const [teachers, setTeachers] = useState<{ label: string; value: number }[]>([]);
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -271,38 +273,41 @@ const CourseList: React.FC = () => {
         >
           签到
         </a>,
-        <a
-          key="detail"
-          onClick={() => {
-            history.push(`/academic/course/detail/${record.id}`);
-          }}
-        >
-          详情
-        </a>,
-        <a
-          key="editable"
-          onClick={() => {
-            setCurrentRow({
-              ...record,
-              subject_id: record.subject?.id,
-              teacher_id: record.teacher?.id,
-            });
-            setDrawerVisible(true);
-          }}
-        >
-          编辑
-        </a>,
-        <Popconfirm
-          key="delete"
-          title="确定删除吗？"
-          onConfirm={async () => {
-            await request(`/api/courses/${record.id}`, { method: 'DELETE' });
-            message.success('删除成功');
-            actionRef.current?.reload();
-          }}
-        >
-          <a>删除</a>
-        </Popconfirm>,
+        <AccessBtn key="detail" access="canViewCourse">
+          <a
+            onClick={() => {
+              history.push(`/academic/course/detail/${record.id}`);
+            }}
+          >
+            详情
+          </a>
+        </AccessBtn>,
+        <AccessBtn key="edit" access="canEditCourse">
+          <a
+            onClick={() => {
+              setCurrentRow({
+                ...record,
+                subject_id: record.subject?.id,
+                teacher_id: record.teacher?.id,
+              });
+              setDrawerVisible(true);
+            }}
+          >
+            编辑
+          </a>
+        </AccessBtn>,
+        <AccessBtn key="delete" access="canDeleteCourse">
+          <Popconfirm
+            title="确定删除吗？"
+            onConfirm={async () => {
+              await request(`/api/courses/${record.id}`, { method: 'DELETE' });
+              message.success('删除成功');
+              actionRef.current?.reload();
+            }}
+          >
+            <a>删除</a>
+          </Popconfirm>
+        </AccessBtn>,
       ],
     },
   ];
@@ -334,17 +339,19 @@ const CourseList: React.FC = () => {
       }}
       headerTitle="课程列表"
       toolBarRender={() => [
-        <Button
-          key="button"
-          icon={<PlusOutlined />}
-          onClick={() => {
-            setCurrentRow(undefined);
-            setDrawerVisible(true);
-          }}
-          type="primary"
-        >
-          新建
-        </Button>,
+        <AccessBtn key="create" access="canCreateCourse">
+          <Button
+            key="button"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setCurrentRow(undefined);
+              setDrawerVisible(true);
+            }}
+            type="primary"
+          >
+            新建
+          </Button>
+        </AccessBtn>,
       ]}
     />
     <DrawerForm<CourseItem>

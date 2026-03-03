@@ -14,8 +14,8 @@ export class CoursesController {
   }
 
   @Get()
-  findAll(@Query('start_date') start_date?: string, @Query('end_date') end_date?: string) {
-    return this.coursesService.findAll(start_date, end_date);
+  findAll(@Query() query: any) {
+    return this.coursesService.findAll(query);
   }
 
   @Get(':id')

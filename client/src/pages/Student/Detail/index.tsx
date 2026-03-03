@@ -1,15 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { PageContainer, ProDescriptions, ProTable } from '@ant-design/pro-components';
-import { Card, Button, message, Tabs, Tag, Space, Descriptions, Statistic, Row, Col } from 'antd';
-import { DownloadOutlined } from '@ant-design/icons';
-import { useParams, history, request } from '@umijs/max';
+import { PageContainer, ProDescriptions, ProTable, ModalForm, ProFormSelect, ProFormText } from '@ant-design/pro-components';
+import { Card, Button, message, Tabs, Tag, Space, Descriptions, Statistic, Row, Col, Modal, Typography } from 'antd';
+import { DownloadOutlined, ShareAltOutlined, CopyOutlined } from '@ant-design/icons';
+import { useParams, history, request, useAccess } from '@umijs/max';
 import * as XLSX from 'xlsx';
+import AccessBtn from '@/components/AccessBtn';
+
+const { Paragraph } = Typography;
 
 const StudentDetail: React.FC = () => {
   const params = useParams<{ id: string }>();
   const studentId = params.id;
   const [student, setStudent] = useState<any>(null);
   const [subjectStats, setSubjectStats] = useState<any>({});
+  const access = useAccess();
+  
+  // Share
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [shareLink, setShareLink] = useState<string>('');
 
   const fetchStudent = async () => {
     try {
@@ -57,6 +65,30 @@ const StudentDetail: React.FC = () => {
           message.success('导出成功');
       } catch (error) {
           message.error('导出失败');
+      }
+  };
+
+  const handleCreateShareLink = async (values: any) => {
+      try {
+          const res = await request('/api/share/create/attendance', {
+              method: 'POST',
+              data: {
+                  studentId: Number(studentId),
+                  expireInDays: values.expireInDays === -1 ? undefined : values.expireInDays,
+                  password: values.password,
+              }
+          });
+          
+          if (res.success && res.data) {
+              const origin = window.location.origin;
+              const fullLink = `${origin}${res.data.url}`;
+              setShareLink(fullLink);
+              message.success('生成成功');
+              // Keep modal open to show link
+              return false; // Prevent modal close
+          }
+      } catch (error) {
+          message.error('生成失败');
       }
   };
 
@@ -260,9 +292,22 @@ const StudentDetail: React.FC = () => {
                   rowKey="id"
                   search={false}
                   toolBarRender={() => [
-                      <Button key="export" icon={<DownloadOutlined />} onClick={handleExportAttendances}>
-                          导出
-                      </Button>
+                      <AccessBtn key="export" access="canExportAttendance">
+                          <Button icon={<DownloadOutlined />} onClick={handleExportAttendances}>
+                              导出
+                          </Button>
+                      </AccessBtn>,
+                      <AccessBtn key="share" access="canExportAttendance">
+                          <Button 
+                            icon={<ShareAltOutlined />} 
+                            onClick={() => {
+                                setShareLink('');
+                                setShareModalVisible(true);
+                            }}
+                          >
+                              生成签到链接
+                          </Button>
+                      </AccessBtn>
                   ]}
                   request={async (params) => {
                     const res = await request(`/api/attendances`, {
@@ -299,6 +344,46 @@ const StudentDetail: React.FC = () => {
           ]}
         />
       </Card>
+      <ModalForm
+        title="生成签到记录分享链接"
+        open={shareModalVisible}
+        onOpenChange={setShareModalVisible}
+        onFinish={handleCreateShareLink}
+        submitter={shareLink ? false : undefined}
+      >
+          {!shareLink ? (
+              <>
+                <ProFormSelect
+                    name="expireInDays"
+                    label="有效期"
+                    initialValue={7}
+                    options={[
+                        { label: '7天', value: 7 },
+                        { label: '30天', value: 30 },
+                        { label: '永久有效', value: -1 },
+                    ]}
+                    required
+                />
+                <ProFormText.Password
+                    name="password"
+                    label="访问密码 (选填)"
+                    placeholder="留空则无需密码"
+                />
+              </>
+          ) : (
+              <div style={{ textAlign: 'center' }}>
+                  <div style={{ marginBottom: 16 }}>
+                      <Tag color="success">链接生成成功</Tag>
+                  </div>
+                  <Paragraph copyable={{ text: shareLink }}>
+                      {shareLink}
+                  </Paragraph>
+                  <div style={{ marginTop: 24 }}>
+                      <Button type="primary" onClick={() => setShareModalVisible(false)}>关闭</Button>
+                  </div>
+              </div>
+          )}
+      </ModalForm>
     </PageContainer>
   );
 };

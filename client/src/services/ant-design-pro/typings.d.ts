@@ -18,6 +18,12 @@ declare namespace API {
     userid?: string;
     access?: string;
     unreadCount?: number;
+    user_role?: {
+        id: number;
+        name: string;
+        display_name: string;
+        permissions?: { key: string; name: string }[];
+    };
   };
 
   type LoginResult = {

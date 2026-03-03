@@ -320,4 +320,62 @@ export class DashboardService {
 
       return exceededList;
   }
+
+  async getTeacherStats(start_date?: string, end_date?: string, user?: any) {
+    const query = this.attendanceRepository
+        .createQueryBuilder('attendance')
+        .leftJoin('attendance.teacher', 'teacher')
+        .select('teacher.name', 'teacherName')
+        .addSelect('COUNT(attendance.id)', 'count')
+        .addSelect('SUM(attendance.hours_deducted)', 'hours')
+        .where('attendance.status = :status', { status: AttendanceStatus.PRESENT });
+        
+    if (start_date) {
+        query.andWhere('attendance.attendance_date >= :start', { start: start_date });
+    }
+    if (end_date) {
+        query.andWhere('attendance.attendance_date <= :end', { end: end_date });
+    }
+    
+    // 如果用户是老师角色，只能看自己的数据
+    if (user && user.role === 'teacher' && user.teacher_id) {
+        query.andWhere('attendance.teacher_id = :teacherId', { teacherId: user.teacher_id });
+    }
+    
+    const result = await query
+        .groupBy('teacher.id')
+        .getRawMany();
+        
+    return result.map(item => ({
+        teacherName: item.teacherName || '未知教师',
+        count: Number(item.count),
+        hours: Number(item.hours || 0)
+    }));
+  }
+
+  async getSubjectStats(start_date?: string, end_date?: string) {
+    const query = this.attendanceRepository
+        .createQueryBuilder('attendance')
+        .leftJoin('attendance.course', 'course')
+        .leftJoin('course.subject', 'subject')
+        .select('subject.name', 'subjectName')
+        .addSelect('SUM(attendance.hours_deducted)', 'hours')
+        .where('attendance.status = :status', { status: AttendanceStatus.PRESENT });
+        
+    if (start_date) {
+        query.andWhere('attendance.attendance_date >= :start', { start: start_date });
+    }
+    if (end_date) {
+        query.andWhere('attendance.attendance_date <= :end', { end: end_date });
+    }
+    
+    const result = await query
+        .groupBy('subject.id')
+        .getRawMany();
+        
+    return result.map(item => ({
+        subjectName: item.subjectName || '未知科目',
+        hours: Number(item.hours || 0)
+    }));
+  }
 }
