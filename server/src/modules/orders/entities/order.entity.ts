@@ -12,6 +12,7 @@ export enum OrderType {
   RENEW = 'renew',
   SUPPLEMENT = 'supplement',
   TRANSFER = 'transfer',
+  GIFT = 'gift',
 }
 
 export enum OrderStatus {
@@ -120,6 +121,9 @@ export class Order {
 
   @Column({ nullable: true })
   source_order_id: number;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  source_deducted_amount: number;
 
   @CreateDateColumn()
   created_at: Date;

@@ -40,6 +40,9 @@ export class OrdersController {
           if (err.message === 'ORDER_HAS_CONSUMPTION') {
               throw new BadRequestException('订单已发生课时消耗，无法作废。请先撤销相关签到记录。');
           }
+          if (err.message === 'ORDER_HAS_TRANSFERRED') {
+              throw new BadRequestException('订单包含已转让子订单，无法作废。');
+          }
           throw err;
       }
   }
@@ -56,7 +59,30 @@ export class OrdersController {
 
   @Post(':id/transfer')
   transfer(@Param('id') id: string, @Body() body: { targetStudentId: number, subjectId?: number, amount?: number }) {
-      return this.ordersService.transfer(+id, body.targetStudentId, body.subjectId ? { subjectId: body.subjectId, amount: body.amount } : undefined);
+      return this.ordersService.transfer(+id, body.targetStudentId, { subjectId: body.subjectId, amount: body.amount });
+  }
+
+  @Post(':id/refund')
+  async refund(@Param('id') id: string, @Body() body: { amount: number, courses: number }) {
+      try {
+          return await this.ordersService.refund(+id, body.amount, body.courses);
+      } catch (err: any) {
+          if (err.message === 'Regular courses must be greater than 0') {
+              throw new BadRequestException('正价课时必须大于0才能退费');
+          }
+          if (err.message === 'Transfer orders cannot be refunded') {
+              throw new BadRequestException('转让订单不允许退费');
+          }
+          if (err.message === 'Cannot deduct more courses than remaining') {
+              throw new BadRequestException('退费课时不能超过剩余正价课时');
+          }
+          throw err;
+      }
+  }
+
+  @Post(':id/revoke-gift')
+  revokeGift(@Param('id') id: string) {
+      return this.ordersService.revokeGift(+id);
   }
 
   @Delete(':id')

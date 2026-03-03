@@ -78,13 +78,13 @@ export class StudentsService {
   }
 
   async getStudentSubjectStats(studentId: number) {
-      // 1. 获取该学生所有有效的子订单 (Active Status)
-      // 修改：只获取 active 的订单，不包含 cancelled 的
+      // 1. 获取该学生所有有效的子订单 (Active + Completed + Transferred)
+      // 修改：包含 COMPLETED 和 TRANSFERRED，因为它们可能贡献了历史购买（对于已完成的订单）或历史消耗抵消（对于转让的订单）
       const activeOrders = await this.orderRepository.createQueryBuilder('order')
           .leftJoinAndSelect('order.subject', 'subject')
           .where('order.student_id = :studentId', { studentId })
           .andWhere('order.parent_id IS NOT NULL') // 只查子订单
-          .andWhere('order.status = :status', { status: 'active' }) // 排除已取消 (cancelled)
+          .andWhere('order.status IN (:...statuses)', { statuses: ['active', 'completed', 'transferred'] }) // 排除已取消 (cancelled)
           .orderBy('order.created_at', 'DESC')
           .getMany();
 

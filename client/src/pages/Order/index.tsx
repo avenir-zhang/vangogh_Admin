@@ -58,7 +58,7 @@ const OrderList: React.FC = () => {
   }, []);
 
   // 使用 formRef 来控制搜索表单
-  const formRef = useRef<any>();
+  const formRef = useRef<any>(null);
 
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
@@ -75,12 +75,33 @@ const OrderList: React.FC = () => {
       dataIndex: 'order_no',
       editable: false,
       hideInForm: true,
+      fixed: 'left',
+      width: 180,
+      render: (_, record) => {
+          if (record.order_type === 'transfer') {
+              return (
+                  <Tooltip title="转让订单">
+                      <span>{record.order_no} <span style={{ color: '#faad14' }}>(转)</span></span>
+                  </Tooltip>
+              );
+          }
+          if (record.status === 'transferred') {
+              return (
+                  <Tooltip title="已转出">
+                      <span>{record.order_no} <span style={{ color: '#52c41a' }}>(出)</span></span>
+                  </Tooltip>
+              );
+          }
+          return record.order_no;
+      }
     },
     {
       title: '学员',
       dataIndex: 'student_id',
       valueType: 'select',
       fieldProps: { options: students },
+      fixed: 'left',
+      width: 100,
       render: (_, record) => (
           <a onClick={() => history.push(`/academic/student/detail/${record.student?.id}`)}>
               {record.student?.name}
@@ -92,6 +113,8 @@ const OrderList: React.FC = () => {
       dataIndex: 'subject_id',
       valueType: 'select',
       fieldProps: { options: subjects },
+      fixed: 'left',
+      width: 120,
       render: (_, record) => {
           // 主订单可能没有科目，显示其包含的子订单科目摘要
           if (record.children && record.children.length > 0) {
@@ -158,7 +181,28 @@ const OrderList: React.FC = () => {
         new: { text: '新报' },
         renew: { text: '续费' },
         supplement: { text: '补缴' },
+        transfer: { text: '转让' },
+        gift: { text: '赠送' },
       },
+      render: (_, record) => {
+        const typeMap: Record<string, string> = {
+            new: '新报',
+            renew: '续费',
+            supplement: '补缴',
+            transfer: '转让',
+            gift: '赠送',
+        };
+        // 优先显示自身的类型（如果是子订单）
+        if (record.order_type) {
+             return typeMap[record.order_type] || record.order_type;
+        }
+        // 如果是主订单且有子订单，汇总显示子订单类型
+        if (record.children && record.children.length > 0) {
+            const types = Array.from(new Set(record.children.map((c: OrderItem) => typeMap[c.order_type] || c.order_type)));
+            return types.join(', ');
+        }
+        return '-';
+      }
     },
     {
       title: '订单日期',
@@ -215,9 +259,14 @@ const OrderList: React.FC = () => {
                 (Number(c.consumed_gift_courses) || 0) > 0
             );
 
-            if (hasConsumption) {
+            const hasTransferred = record.children?.some(c => c.status === 'transferred');
+
+            if (hasConsumption || hasTransferred) {
+                const title = hasTransferred 
+                    ? "订单包含已转让子订单，无法作废" 
+                    : "订单已发生消耗，无法作废";
                 return (
-                    <Tooltip key="delete" title="订单已发生消耗，无法作废">
+                    <Tooltip key="delete" title={title}>
                         <span style={{ color: 'rgba(0,0,0,0.25)', cursor: 'not-allowed' }}>作废</span>
                     </Tooltip>
                 );
@@ -378,6 +427,7 @@ const OrderList: React.FC = () => {
           new: '新报',
           renew: '续费',
           supplement: '补缴',
+          gift: '赠送',
         }}
         rules={[{ required: true, message: '请选择订单类型' }]}
       />

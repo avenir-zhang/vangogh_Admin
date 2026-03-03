@@ -98,6 +98,7 @@ const CreateOrder: React.FC = () => {
               new: '新报',
               renew: '续费',
               supplement: '补缴',
+              gift: '赠送',
             }}
             rules={[{ required: true, message: '请选择订单类型' }]}
             initialValue="new"
@@ -174,6 +175,7 @@ const CreateOrder: React.FC = () => {
                     new: '新报',
                     renew: '续费',
                     supplement: '补缴',
+                    gift: '赠送',
                 }}
                 initialValue="new"
                 rules={[{ required: true, message: '请选择' }]}
