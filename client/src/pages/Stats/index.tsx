@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Card, DatePicker, Row, Col, Statistic, Table, Select, Segmented, Space, Button } from 'antd';
+import { Card, DatePicker, Row, Col, Statistic, Table, Select, Segmented, Space, Button, Collapse } from 'antd';
 import { Column, Pie, Line, Area, DualAxes } from '@ant-design/plots';
 import { request, useModel } from '@umijs/max';
 import dayjs from 'dayjs';
@@ -284,127 +284,65 @@ const Stats: React.FC = () => {
       <Row gutter={24} style={{ marginTop: 24 }}>
         <Col span={12}>
           <Card title="教师收入Top5" bordered={false}>
-            <Table rowKey={(r:any, i:number) => `${r.teacherName}-${i}`} pagination={false} dataSource={topTeachers}
+            <Table rowKey="teacherName" pagination={false} dataSource={topTeachers}
               columns={[{ title: '教师', dataIndex: 'teacherName' }, { title: '收入(¥)', dataIndex: 'income', render: (v) => Number(v).toFixed(2) }]} />
           </Card>
         </Col>
         <Col span={12}>
           <Card title="科目收入Top5" bordered={false}>
-            <Table rowKey={(r:any, i:number) => `${r.subjectName}-${i}`} pagination={false} dataSource={topSubjects}
+            <Table rowKey="subjectName" pagination={false} dataSource={topSubjects}
               columns={[{ title: '科目', dataIndex: 'subjectName' }, { title: '收入(¥)', dataIndex: 'income', render: (v) => Number(v).toFixed(2) }]} />
           </Card>
         </Col>
       </Row>
 
-      <Row gutter={24} style={{ marginTop: 24 }}>
-        <Col span={12}>
-          <Card
-            title="教师课时趋势"
-            bordered={false}
-            extra={
-              <Space>
-                <Select
-                  style={{ width: 180 }}
-                  placeholder="选择教师"
-                  options={teacherOptions}
-                  value={teacherId}
-                  onChange={setTeacherId as any}
-                  allowClear
-                />
-                <Segmented
-                  options={[{ label: '按日', value: 'day' }, { label: '按周', value: 'week' }]}
-                  value={granularityT}
-                  onChange={(v) => setGranularityT(v as any)}
-                />
-              </Space>
-            }
-          >
-            <Line
-              data={teacherSeries}
-              xField="date"
-              yField="hours"
-              point={{ size: 3 }}
-              smooth
-              height={300}
-            />
-          </Card>
-        </Col>
-        <Col span={12}>
-          <Card
-            title="科目课时趋势"
-            bordered={false}
-            extra={
-              <Space>
-                <Select
-                  style={{ width: 180 }}
-                  placeholder="选择科目"
-                  options={subjectOptions}
-                  value={subjectId}
-                  onChange={setSubjectId as any}
-                  allowClear
-                />
-                <Segmented
-                  options={[{ label: '按日', value: 'day' }, { label: '按周', value: 'week' }]}
-                  value={granularityS}
-                  onChange={(v) => setGranularityS(v as any)}
-                />
-              </Space>
-            }
-          >
-            <Line
-              data={subjectSeries}
-              xField="date"
-              yField="hours"
-              point={{ size: 3 }}
-              smooth
-              height={300}
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      <Row gutter={24} style={{ marginTop: 24 }}>
-        <Col span={24}>
-          <Card
-            title="学员课时趋势"
-            bordered={false}
-            extra={
-              <Space>
-                <Select
-                  style={{ width: 220 }}
-                  placeholder="搜索学员"
-                  showSearch
-                  filterOption={false}
-                  onSearch={async (q) => {
-                    const res = await request('/api/students', { params: { name: q } });
-                    const opts = (res || []).map((s: any) => ({ label: s.name, value: s.id }));
-                    // 简单替换，避免额外状态管理复杂度
-                    (window as any).__stuOpts = opts;
-                  }}
-                  options={(window as any).__stuOpts || []}
-                  value={studentId}
-                  onChange={setStudentId as any}
-                  allowClear
-                />
-                <Segmented
-                  options={[{ label: '按日', value: 'day' }, { label: '按周', value: 'week' }]}
-                  value={granularityStu}
-                  onChange={(v) => setGranularityStu(v as any)}
-                />
-              </Space>
-            }
-          >
-            <Line
-              data={studentSeries}
-              xField="date"
-              yField="hours"
-              point={{ size: 3 }}
-              smooth
-              height={300}
-            />
-          </Card>
-        </Col>
-      </Row>
+      <Collapse style={{ marginTop: 16 }} items={[{
+        key: 'trends',
+        label: '课时趋势（教师 / 科目 / 学员）',
+        children: (
+          <>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Card title="教师课时趋势" bordered={false} extra={
+                  <Space>
+                    <Select style={{ width: 180 }} placeholder="选择教师" options={teacherOptions} value={teacherId} onChange={setTeacherId as any} allowClear />
+                    <Segmented options={[{ label: '按日', value: 'day' }, { label: '按周', value: 'week' }]} value={granularityT} onChange={(v) => setGranularityT(v as any)} />
+                  </Space>
+                }>
+                  <Line data={teacherSeries} xField="date" yField="hours" point={{ size: 3 }} smooth height={260} />
+                </Card>
+              </Col>
+              <Col span={12}>
+                <Card title="科目课时趋势" bordered={false} extra={
+                  <Space>
+                    <Select style={{ width: 180 }} placeholder="选择科目" options={subjectOptions} value={subjectId} onChange={setSubjectId as any} allowClear />
+                    <Segmented options={[{ label: '按日', value: 'day' }, { label: '按周', value: 'week' }]} value={granularityS} onChange={(v) => setGranularityS(v as any)} />
+                  </Space>
+                }>
+                  <Line data={subjectSeries} xField="date" yField="hours" point={{ size: 3 }} smooth height={260} />
+                </Card>
+              </Col>
+            </Row>
+            <Row gutter={16} style={{ marginTop: 16 }}>
+              <Col span={24}>
+                <Card title="学员课时趋势" bordered={false} extra={
+                  <Space>
+                    <Select style={{ width: 220 }} placeholder="搜索学员" showSearch filterOption={false}
+                      onSearch={async (q) => {
+                        const res = await request('/api/students', { params: { name: q } });
+                        const opts = (res || []).map((s: any) => ({ label: s.name, value: s.id }));
+                        (window as any).__stuOpts = opts;
+                      }} options={(window as any).__stuOpts || []} value={studentId} onChange={setStudentId as any} allowClear />
+                    <Segmented options={[{ label: '按日', value: 'day' }, { label: '按周', value: 'week' }]} value={granularityStu} onChange={(v) => setGranularityStu(v as any)} />
+                  </Space>
+                }>
+                  <Line data={studentSeries} xField="date" yField="hours" point={{ size: 3 }} smooth height={260} />
+                </Card>
+              </Col>
+            </Row>
+          </>
+        )
+      }]} />
     </PageContainer>
   );
 };

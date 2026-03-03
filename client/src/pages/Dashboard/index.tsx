@@ -3,13 +3,23 @@ import { useRequest } from '@umijs/max';
 import { request, history } from '@umijs/max';
 import RcResizeObserver from 'rc-resize-observer';
 import { useState } from 'react';
-import { Statistic, Card, Row, Col, List, Avatar, Tag, Button, Table } from 'antd';
+import { Statistic, Card, Row, Col, List, Avatar, Tag, Button } from 'antd';
 import { Line, Bar } from '@ant-design/plots';
+import KpiCards from '@/components/Dashboard/KpiCards';
+import RevenueTrend from '@/components/Dashboard/RevenueTrend';
+import OrderTypePie from '@/components/Dashboard/OrderTypePie';
+import TopTable from '@/components/Dashboard/TopTable';
 
 const { Statistic: ProStatistic } = StatisticCard;
 
 export default function Dashboard() {
   const [responsive, setResponsive] = useState(false);
+  const { data: presets } = useRequest(async () => {
+    try {
+      const res = await request('/api/dashboard/presets');
+      return res?.data || { widgets: [] };
+    } catch { return { widgets: [] }; }
+  });
 
   // 移除统一的 fetchData，直接在 useRequest 中处理，以便更好地调试
   const { data: summaryData, loading: summaryLoading } = useRequest(async () => {
@@ -62,6 +72,28 @@ export default function Dashboard() {
       if (Array.isArray(res?.data)) return res;
       return [];
   });
+
+  // Finance quick metrics for Dashboard
+  const { data: kpiData } = useRequest(async () => {
+    const res = await request('/api/dashboard/kpi');
+    return res?.data || {};
+  });
+  const { data: revenueData } = useRequest(async () => {
+    const res = await request('/api/dashboard/revenue-timeseries', { params: { granularity: 'day' } });
+    return res?.data || [];
+  });
+  const { data: orderTypeData } = useRequest(async () => {
+    const res = await request('/api/dashboard/order-type-distribution');
+    return (res?.data || []).map((i: any) => ({ type: i.orderType, value: i.amount }));
+  });
+  const { data: topTeachers } = useRequest(async () => {
+    const res = await request('/api/dashboard/top', { params: { type: 'teacher', limit: 5 } });
+    return res?.data || [];
+  });
+  const { data: topSubjects } = useRequest(async () => {
+    const res = await request('/api/dashboard/top', { params: { type: 'subject', limit: 5 } });
+    return res?.data || [];
+  });
   
   // 折线图配置
   const lineConfig = {
@@ -95,6 +127,8 @@ export default function Dashboard() {
         color: { size: 72, autoWrap: true, maxRows: 3, cols: 6 },
     },
   };
+
+  const show = (key: string) => Array.isArray(presets?.widgets) ? presets.widgets.includes(key) : true;
 
   return (
     <PageContainer>
@@ -147,8 +181,33 @@ export default function Dashboard() {
           </ProCard>
         </ProCard>
 
+        {(show('kpi') || show('revenue_trend') || show('order_type_dist')) && (
+          <>
+            {show('kpi') && <KpiCards kpi={kpiData || {}} />}
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              {show('revenue_trend') && (
+                <Col span={16}>
+                  <RevenueTrend data={revenueData || []} />
+                </Col>
+              )}
+              {show('order_type_dist') && (
+                <Col span={8}>
+                  <OrderTypePie data={orderTypeData || []} />
+                </Col>
+              )}
+            </Row>
+            {show('top_lists') && (
+              <Row gutter={16} style={{ marginBottom: 24 }}>
+                <Col span={12}><TopTable title="教师收入 Top5" data={topTeachers || []} type="teacher" /></Col>
+                <Col span={12}><TopTable title="科目收入 Top5" data={topSubjects || []} type="subject" /></Col>
+              </Row>
+            )}
+          </>
+        )}
+
         <Row gutter={24}>
             <Col span={8}>
+                {show('followup') && (
                 <Card title="欠费学员" bordered={false} style={{ marginBottom: 24, minHeight: 400 }}>
                     <List
                         itemLayout="horizontal"
@@ -187,8 +246,10 @@ export default function Dashboard() {
                         )}
                     />
                 </Card>
+                )}
             </Col>
             <Col span={8}>
+                {show('followup') && (
                 <Card title="课时上超学员 (剩余 < 0)" bordered={false} style={{ marginBottom: 24, minHeight: 400 }}>
                     <List
                         itemLayout="horizontal"
@@ -212,8 +273,10 @@ export default function Dashboard() {
                         )}
                     />
                 </Card>
+                )}
             </Col>
             <Col span={8}>
+                {show('followup') && (
                 <Card title="即将续费学员 (剩余课时 <= 5)" bordered={false} style={{ marginBottom: 24, minHeight: 400 }}>
                     <List
                         itemLayout="horizontal"
@@ -237,12 +300,11 @@ export default function Dashboard() {
                         )}
                     />
                 </Card>
+                )}
             </Col>
         </Row>
 
-        <Card title="签到趋势 (近12个月)" bordered={false} style={{ marginBottom: 24 }}>
-            <Line {...lineConfig} />
-        </Card>
+        {/* Removed: Sign-in trend (近12个月) as requested */}
 
       </RcResizeObserver>
     </PageContainer>

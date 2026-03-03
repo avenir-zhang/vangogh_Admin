@@ -659,4 +659,81 @@ export class DashboardService {
 
     return { income, ordersCount, avgTicket, debtTotal: Number(debtSum || 0) };
   }
+
+  async getPresets(user?: any) {
+    const role = user?.role || user?.user_role?.name || 'admin';
+    // Basic widget keys to render on /dashboard page
+    // overview: student summary already handled by /dashboard/summary
+    const admin = [
+      'kpi',
+      'revenue_trend',
+      'order_type_dist',
+      'top_lists',
+      'followup',
+    ];
+    const teacher = [
+      'kpi',
+      'teaching_my_trend',
+      'followup_light',
+    ];
+    const academic = [
+      'kpi',
+      'teaching_trends',
+      'followup',
+    ];
+    let widgets = admin;
+    if (role === 'teacher') widgets = teacher;
+    if (role === 'academic' || role === 'edu' || role === 'dean') widgets = academic;
+    return { role, widgets };
+  }
+
+  async getRecognizedRevenue(start_date?: string, end_date?: string) {
+    const subjects = await this.getSubjectIncome(start_date, end_date);
+    const teachers = await this.getTeacherIncome(start_date, end_date);
+    const total = subjects.reduce((s, it) => s + Number(it.income || 0), 0);
+    return { total, bySubject: subjects, byTeacher: teachers };
+  }
+
+  async getDeferredRevenue() {
+    // Remaining hours by subject on active child orders, valued at subject.price
+    const rows = await this.orderRepository
+      .createQueryBuilder('order')
+      .leftJoin('order.subject', 'subject')
+      .select('subject.id', 'subjectId')
+      .addSelect('subject.name', 'subjectName')
+      .addSelect('subject.price', 'price')
+      .addSelect('SUM( (order.regular_courses - order.consumed_regular_courses) + (order.gift_courses - order.consumed_gift_courses) )', 'remainingHours')
+      .where('order.parent_id IS NOT NULL')
+      .andWhere('order.status IN (:...statuses)', { statuses: [OrderStatus.ACTIVE, OrderStatus.COMPLETED, OrderStatus.TRANSFERRED] })
+      .groupBy('subject.id')
+      .getRawMany();
+
+    const data = rows.map((r: any) => {
+      const remaining = Number(r.remainingHours || 0);
+      const price = Number(r.price || 0);
+      return {
+        subjectId: Number(r.subjectId) || null,
+        subjectName: r.subjectName || '未知科目',
+        remainingHours: remaining,
+        value: remaining * price,
+      };
+    });
+    const totalValue = data.reduce((s, it) => s + it.value, 0);
+    const totalHours = data.reduce((s, it) => s + it.remainingHours, 0);
+    return { totalValue, totalHours, items: data };
+  }
+
+  async getRefundSummary(start_date?: string, end_date?: string) {
+    const query = this.orderRepository
+      .createQueryBuilder('order')
+      .select('DATE(order.created_at)', 'd')
+      .addSelect('SUM(order.paid_fee)', 'amount')
+      .where('order.parent_id IS NULL')
+      .andWhere('order.status = :cancelled', { cancelled: OrderStatus.CANCELLED });
+    if (start_date) query.andWhere('order.created_at >= :start', { start: start_date });
+    if (end_date) query.andWhere('order.created_at <= :end', { end: end_date });
+    const rows = await query.groupBy('d').getRawMany();
+    const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    return { total, timeseries: rows.map((r) => ({ date: new Date(r.d).toISOString().slice(0,10), amount: Number(r.amount || 0) })) };
+  }
 }

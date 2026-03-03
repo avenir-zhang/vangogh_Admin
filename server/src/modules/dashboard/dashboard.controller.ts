@@ -139,4 +139,27 @@ export class DashboardController {
     const { start_date, end_date } = query;
     return { success: true, data: await this.dashboardService.getKPI(start_date, end_date) };
   }
+
+  @Get('presets')
+  async presets(@Request() req) {
+    const user = req.user;
+    return { success: true, data: await this.dashboardService.getPresets(user) };
+  }
+
+  @Get('recognized-revenue')
+  async recognizedRevenue(@Query() query: any) {
+    const { start_date, end_date } = query;
+    return { success: true, data: await this.dashboardService.getRecognizedRevenue(start_date, end_date) };
+  }
+
+  @Get('deferred-revenue')
+  async deferredRevenue() {
+    return { success: true, data: await this.dashboardService.getDeferredRevenue() };
+  }
+
+  @Get('refund-summary')
+  async refundSummary(@Query() query: any) {
+    const { start_date, end_date } = query;
+    return { success: true, data: await this.dashboardService.getRefundSummary(start_date, end_date) };
+  }
 }

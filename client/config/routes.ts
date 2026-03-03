@@ -31,6 +31,7 @@ export default [
     path: '/academic',
     access: 'canViewAcademic',
     routes: [
+      { name: '教务图表', path: '/academic/stats', component: './Stats', access: 'canViewStats' },
       { name: '学员管理', path: '/academic/student', component: './Student', access: 'canViewStudent' },
       { path: '/academic/student/detail/:id', component: './Student/Detail', hideInMenu: true, name: '学员详情', access: 'canViewStudent' },
       { name: '教师管理', path: '/academic/teacher', component: './Teacher', access: 'canViewTeacher' },
@@ -40,7 +41,6 @@ export default [
       { path: '/academic/course/detail/:id', name: '课程详情', component: './Course/Detail', hideInMenu: true, access: 'canViewCourse' },
       { name: '课程日历', path: '/academic/calendar', component: './Calendar', access: 'canViewCourse' },
       { name: '签到记录', path: '/academic/attendance', component: './Attendance', access: 'canViewCourse' },
-      { name: '教务图表', path: '/academic/stats', component: './Stats', access: 'canViewStats' },
       { path: '/academic', redirect: '/academic/student' },
     ],
   },

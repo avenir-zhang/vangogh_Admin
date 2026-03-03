@@ -25,6 +25,8 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AccessControlModule } from './modules/access-control/access-control.module';
 import { ShareModule } from './modules/share/share.module';
 import { ShareLink } from './modules/share/entities/share-link.entity';
+import { FollowupRecord } from './modules/followups/entities/followup-record.entity';
+import { FollowupsModule } from './modules/followups/followups.module';
 
 @Module({
   imports: [
@@ -41,7 +43,7 @@ import { ShareLink } from './modules/share/entities/share-link.entity';
         username: configService.get<string>('DB_USERNAME', 'root'),
         password: configService.get<string>('DB_PASSWORD', ''),
         database: configService.get<string>('DB_DATABASE', 'vangogh_db'),
-        entities: [User, Student, Teacher, Subject, Course, Order, Attendance, StudentCourse, Role, Permission, ShareLink],
+        entities: [User, Student, Teacher, Subject, Course, Order, Attendance, StudentCourse, Role, Permission, ShareLink, FollowupRecord],
         synchronize: true,
       }),
       inject: [ConfigService],
@@ -57,6 +59,7 @@ import { ShareLink } from './modules/share/entities/share-link.entity';
     DashboardModule,
     AccessControlModule,
     ShareModule,
+    FollowupsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
