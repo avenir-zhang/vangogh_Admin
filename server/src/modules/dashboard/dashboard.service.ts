@@ -378,4 +378,147 @@ export class DashboardService {
         hours: Number(item.hours || 0)
     }));
   }
+
+  private buildDateBuckets(start: Date, end: Date, granularity: 'day' | 'week') {
+    const buckets: { key: string; start: Date; end: Date }[] = [];
+    const d = new Date(start);
+    d.setHours(0, 0, 0, 0);
+    while (d <= end) {
+      const bucketStart = new Date(d);
+      let bucketEnd: Date;
+      let key: string;
+      if (granularity === 'week') {
+        const tmp = new Date(d);
+        tmp.setDate(tmp.getDate() + (7 - ((tmp.getDay() + 6) % 7)));
+        bucketEnd = new Date(tmp);
+        key = `${bucketStart.getFullYear()}-W${getWeekNumber(bucketStart)}`;
+      } else {
+        bucketEnd = new Date(d);
+        bucketEnd.setDate(bucketEnd.getDate() + 1);
+        key = `${bucketStart.getFullYear()}-${String(bucketStart.getMonth() + 1).padStart(2, '0')}-${String(bucketStart.getDate()).padStart(2, '0')}`;
+      }
+      buckets.push({ key, start: bucketStart, end: new Date(bucketEnd) });
+      d.setTime(bucketEnd.getTime());
+    }
+    return buckets;
+
+    function getWeekNumber(date: Date) {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      const dayNum = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil((((d as any) - (yearStart as any)) / 86400000 + 1) / 7);
+      return String(weekNo).padStart(2, '0');
+    }
+  }
+
+  async getTeacherTimeSeries(teacherId: number, start_date?: string, end_date?: string, granularity: 'day' | 'week' = 'day') {
+    const start = start_date ? new Date(start_date) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const end = end_date ? new Date(end_date) : new Date();
+    const buckets = this.buildDateBuckets(start, end, granularity);
+
+    const rows = await this.attendanceRepository
+      .createQueryBuilder('attendance')
+      .select('DATE(attendance.attendance_date)', 'd')
+      .addSelect('SUM(attendance.hours_deducted)', 'hours')
+      .where('attendance.status = :status', { status: AttendanceStatus.PRESENT })
+      .andWhere('attendance.teacher_id = :tid', { tid: teacherId })
+      .andWhere('attendance.attendance_date >= :start', { start })
+      .andWhere('attendance.attendance_date <= :end', { end })
+      .groupBy('d')
+      .getRawMany();
+
+    const dayMap = new Map<string, number>();
+    rows.forEach((r: any) => {
+      const key = new Date(r.d).toISOString().slice(0, 10);
+      dayMap.set(key, Number(r.hours || 0));
+    });
+
+    return buckets.map((b) => {
+      let value = 0;
+      if (granularity === 'day') {
+        value = dayMap.get(b.key) || 0;
+      } else {
+        // sum day values within week bucket
+        for (const [k, v] of dayMap.entries()) {
+          const kd = new Date(k);
+          if (kd >= b.start && kd < b.end) value += v;
+        }
+      }
+      return { date: b.key, hours: value };
+    });
+  }
+
+  async getSubjectTimeSeries(subjectId: number, start_date?: string, end_date?: string, granularity: 'day' | 'week' = 'day') {
+    const start = start_date ? new Date(start_date) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const end = end_date ? new Date(end_date) : new Date();
+    const buckets = this.buildDateBuckets(start, end, granularity);
+
+    const rows = await this.attendanceRepository
+      .createQueryBuilder('attendance')
+      .leftJoin('attendance.course', 'course')
+      .select('DATE(attendance.attendance_date)', 'd')
+      .addSelect('SUM(attendance.hours_deducted)', 'hours')
+      .where('attendance.status = :status', { status: AttendanceStatus.PRESENT })
+      .andWhere('course.subject_id = :sid', { sid: subjectId })
+      .andWhere('attendance.attendance_date >= :start', { start })
+      .andWhere('attendance.attendance_date <= :end', { end })
+      .groupBy('d')
+      .getRawMany();
+
+    const dayMap = new Map<string, number>();
+    rows.forEach((r: any) => {
+      const key = new Date(r.d).toISOString().slice(0, 10);
+      dayMap.set(key, Number(r.hours || 0));
+    });
+
+    return buckets.map((b) => {
+      let value = 0;
+      if (granularity === 'day') {
+        value = dayMap.get(b.key) || 0;
+      } else {
+        for (const [k, v] of dayMap.entries()) {
+          const kd = new Date(k);
+          if (kd >= b.start && kd < b.end) value += v;
+        }
+      }
+      return { date: b.key, hours: value };
+    });
+  }
+
+  async getStudentTimeSeries(studentId: number, start_date?: string, end_date?: string, granularity: 'day' | 'week' = 'day') {
+    const start = start_date ? new Date(start_date) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const end = end_date ? new Date(end_date) : new Date();
+    const buckets = this.buildDateBuckets(start, end, granularity);
+
+    const rows = await this.attendanceRepository
+      .createQueryBuilder('attendance')
+      .select('DATE(attendance.attendance_date)', 'd')
+      .addSelect('SUM(attendance.hours_deducted)', 'hours')
+      .where('attendance.status = :status', { status: AttendanceStatus.PRESENT })
+      .andWhere('attendance.student_id = :sid', { sid: studentId })
+      .andWhere('attendance.attendance_date >= :start', { start })
+      .andWhere('attendance.attendance_date <= :end', { end })
+      .groupBy('d')
+      .getRawMany();
+
+    const dayMap = new Map<string, number>();
+    rows.forEach((r: any) => {
+      const key = new Date(r.d).toISOString().slice(0, 10);
+      dayMap.set(key, Number(r.hours || 0));
+    });
+
+    return buckets.map((b) => {
+      let value = 0;
+      if (granularity === 'day') {
+        value = dayMap.get(b.key) || 0;
+      } else {
+        for (const [k, v] of dayMap.entries()) {
+          const kd = new Date(k);
+          if (kd >= b.start && kd < b.end) value += v;
+        }
+      }
+      return { date: b.key, hours: value };
+    });
+  }
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { PageContainer, ProDescriptions, ProTable, ModalForm, ProFormSelect, ProFormText } from '@ant-design/pro-components';
-import { Card, Button, message, Tabs, Tag, Space, Descriptions, Statistic, Row, Col, Modal, Typography } from 'antd';
+import { Card, Button, message, Tabs, Tag, Space, Descriptions, Statistic, Row, Col, Modal, Typography, DatePicker, Select, Table, Empty } from 'antd';
+import dayjs from 'dayjs';
 import { DownloadOutlined, ShareAltOutlined, CopyOutlined } from '@ant-design/icons';
 import { useParams, history, request, useAccess } from '@umijs/max';
 import * as XLSX from 'xlsx';
@@ -14,6 +15,14 @@ const StudentDetail: React.FC = () => {
   const [student, setStudent] = useState<any>(null);
   const [subjectStats, setSubjectStats] = useState<any>({});
   const access = useAccess();
+  const [attendances, setAttendances] = useState<any[]>([]);
+  const [attLoading, setAttLoading] = useState(false);
+  const [attDateRange, setAttDateRange] = useState<any>([dayjs().startOf('month'), dayjs().endOf('month')]);
+  const [attSubjectId, setAttSubjectId] = useState<number | undefined>(undefined);
+  const [attStatus, setAttStatus] = useState<string | undefined>(undefined);
+  const [subjectOptions, setSubjectOptions] = useState<{label: string, value: number}[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   
   // Share
   const [shareModalVisible, setShareModalVisible] = useState(false);
@@ -68,6 +77,23 @@ const StudentDetail: React.FC = () => {
       }
   };
 
+  const fetchAttendanceList = async () => {
+      try {
+          setAttLoading(true);
+          const params: any = { student_id: studentId };
+          if (attSubjectId) params.subject_id = attSubjectId;
+          if (attStatus) params.status = attStatus;
+          if (attDateRange?.[0]) params.start_date = attDateRange[0].format('YYYY-MM-DD');
+          if (attDateRange?.[1]) params.end_date = attDateRange[1].format('YYYY-MM-DD');
+          const res = await request(`/api/attendances`, { params });
+          setAttendances(res || []);
+      } catch (e) {
+          message.error('获取签到记录失败');
+      } finally {
+          setAttLoading(false);
+      }
+  };
+
   const handleCreateShareLink = async (values: any) => {
       try {
           const res = await request('/api/share/create/attendance', {
@@ -96,8 +122,24 @@ const StudentDetail: React.FC = () => {
     if (studentId) {
       fetchStudent();
       fetchSubjectStats();
+      fetchAttendanceList();
+      (async () => {
+        try {
+          setOrdersLoading(true);
+          const res = await request(`/api/orders`, { params: { student_id: studentId } });
+          setOrders(res || []);
+        } finally { setOrdersLoading(false); }
+      })();
     }
   }, [studentId]);
+
+  useEffect(() => {
+    // preload subjects for filter
+    (async () => {
+        const ss = await request('/api/subjects');
+        setSubjectOptions((ss || []).map((s: any) => ({ label: s.name, value: s.id })));
+    })();
+  }, []);
 
   if (!student) {
     return <PageContainer loading />;
@@ -134,211 +176,241 @@ const StudentDetail: React.FC = () => {
               label: '报名课程',
               key: 'courses',
               children: (
-                <div>
-                    {Object.keys(subjectStats).length === 0 && <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>暂无报名课程</div>}
-                    
-                    {Object.keys(subjectStats).map((subjectName) => {
-                         const data = subjectStats[subjectName] || { totalRegular: 0, totalGift: 0, consumed: 0, remaining: 0 };
-                         const isArrears = data.remaining < 0;
-                         
-                         return (
-                         <Card
-                             key={subjectName} 
-                             type="inner" 
-                             title={
-                                 <Space>
-                                     <span style={{ fontWeight: 'bold' }}>{subjectName}</span>
-                                     {isArrears && <Tag color="error">欠费</Tag>}
-                                 </Space>
-                             }
-                             style={{ marginBottom: 20, border: isArrears ? '1px solid #ff4d4f' : undefined }}
-                         >
-                             <Row gutter={16} style={{ marginBottom: 20 }}>
-                                 <Col span={6}>
-                                     <Statistic title="正价课时" value={Number(data.totalRegular).toFixed(2)} />
-                                 </Col>
-                                 <Col span={6}>
-                                     <Statistic title="赠送课时" value={Number(data.totalGift).toFixed(2)} />
-                                 </Col>
-                                 <Col span={6}>
-                                     <Statistic title="消耗课时" value={Number(data.consumed).toFixed(2)} />
-                                 </Col>
-                                 <Col span={6}>
-                                     <Statistic 
-                                        title="剩余课时" 
-                                        value={Number(data.remaining).toFixed(2)} 
-                                        valueStyle={{ color: data.remaining < 0 ? 'red' : '#3f8600' }} 
-                                        suffix={data.remaining < 0 ? <Tag color="error">欠费</Tag> : null}
-                                     />
-                                 </Col>
-                             </Row>
+                (() => {
+                  const keys = Object.keys(subjectStats || {});
+                  if (keys.length === 0) return <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>暂无报名课程</div>;
+                  const items = keys.map((subjectName) => {
+                    const data = subjectStats[subjectName] || { totalRegular: 0, totalGift: 0, consumed: 0, remaining: 0, orders: [] };
+                    const isArrears = data.remaining < 0;
+                    return {
+                      key: subjectName,
+                      label: subjectName,
+                      children: (
+                        <Card type="inner" style={{ border: isArrears ? '1px solid #ff4d4f' : undefined }}>
+                          <Row gutter={16} style={{ marginBottom: 20 }}>
+                            <Col span={6}><Statistic title="正价课时" value={Number(data.totalRegular).toFixed(2)} /></Col>
+                            <Col span={6}><Statistic title="赠送课时" value={Number(data.totalGift).toFixed(2)} /></Col>
+                            <Col span={6}><Statistic title="消耗课时" value={Number(data.consumed).toFixed(2)} /></Col>
+                            <Col span={6}>
+                              <Statistic title="剩余课时" value={Number(data.remaining).toFixed(2)} valueStyle={{ color: data.remaining < 0 ? 'red' : '#3f8600' }} />
+                              {isArrears ? <Tag color="error" style={{ marginLeft: 8 }}>欠费</Tag> : null}
+                            </Col>
+                          </Row>
+                          <div style={{ marginTop: 16 }}>
+                            <div style={{ marginBottom: 8, fontWeight: 'bold' }}>关联订单明细</div>
+                            {(() => {
+                              const baseOrders = Array.isArray(data.orders) ? data.orders : [];
+                              const consumedFromOrders = baseOrders.reduce(
+                                (s: number, o: any) => s + Number(o.consumed_regular_courses || 0) + Number(o.consumed_gift_courses || 0),
+                                0,
+                              );
+                              const extra = Math.max(0, Number(data.consumed || 0) - consumedFromOrders);
+                              const ordersWithExtra = extra > 0
+                                ? [
+                                    ...baseOrders,
+                                    {
+                                      id: `exceed-${subjectName}`,
+                                      order_no: '超上（未匹配子订单）',
+                                      regular_courses: 0,
+                                      gift_courses: 0,
+                                      consumed_regular_courses: extra,
+                                      consumed_gift_courses: 0,
+                                      expire_date: null,
+                                      status: 'exceeded',
+                                      __synthetic: true,
+                                    },
+                                  ]
+                                : baseOrders;
 
-                             <div style={{ marginTop: 16 }}>
-                                 <div style={{ marginBottom: 8, fontWeight: 'bold' }}>关联订单明细</div>
-                                 <ProTable
-                                     rowKey="id"
-                                     search={false}
-                                     toolBarRender={false}
-                                     options={false}
-                                     pagination={false}
-                                     dataSource={data.orders || []}
-                                     columns={[
-                                         { 
-                                             title: '订单号', 
-                                             dataIndex: 'order_no',
-                                             render: (text, record) => (
-                                                 <a onClick={() => history.push(`/finance/order/detail/${record.parent_id || record.id}`)}>{text}</a>
-                                             )
-                                         },
-                                         { title: '正价', dataIndex: 'regular_courses', render: (val) => Number(val).toFixed(2) },
-                                         { title: '赠送', dataIndex: 'gift_courses', render: (val) => Number(val).toFixed(2) },
-                                         { title: '已用正价', dataIndex: 'consumed_regular_courses', render: (val) => Number(val).toFixed(2) },
-                                         { title: '已用赠送', dataIndex: 'consumed_gift_courses', render: (val) => Number(val).toFixed(2) },
-                                         { 
-                                            title: '过期时间', 
-                                            dataIndex: 'expire_date', 
-                                            valueType: 'date',
-                                            render: (text, record) => {
-                                                if (!record.expire_date) return '-';
-                                                const expire = new Date(record.expire_date);
-                                                const now = new Date();
-                                                const oneMonthLater = new Date();
-                                                oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
+                              const columns = [
+                                {
+                                  title: '订单号',
+                                  dataIndex: 'order_no',
+                                  render: (text: any, record: any) =>
+                                    record.__synthetic ? (
+                                      <span style={{ color: '#cf1322' }}>{text}</span>
+                                    ) : (
+                                      <a onClick={() => history.push(`/finance/order/detail/${record.parent_id || record.id}`)}>{text}</a>
+                                    ),
+                                },
+                                { title: '正价', dataIndex: 'regular_courses', render: (val: any) => Number(val).toFixed(2) },
+                                { title: '赠送', dataIndex: 'gift_courses', render: (val: any) => Number(val).toFixed(2) },
+                                { title: '已用正价', dataIndex: 'consumed_regular_courses', render: (val: any) => {
+                                  const n = Number(val || 0);
+                                  return <span style={n > 0 ? { color: '#52c41a', fontWeight: 500 } : undefined}>{n.toFixed(2)}</span>;
+                                } },
+                                { title: '已用赠送', dataIndex: 'consumed_gift_courses', render: (val: any) => {
+                                  const n = Number(val || 0);
+                                  return <span style={n > 0 ? { color: '#722ed1', fontWeight: 500 } : undefined}>{n.toFixed(2)}</span>;
+                                } },
+                                {
+                                  title: '过期时间',
+                                  dataIndex: 'expire_date',
+                                  valueType: 'date',
+                                  render: (text: any, record: any) => {
+                                    if (record.__synthetic) return '-';
+                                    if (!record.expire_date) return '-';
+                                    const expire = new Date(record.expire_date);
+                                    const now = new Date();
+                                    const oneMonthLater = new Date();
+                                    oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
+                                    let color = 'green';
+                                    let statusText = '';
+                                    if (expire < now) { color = 'red'; statusText = '(已过期)'; }
+                                    else if (expire <= oneMonthLater) { color = 'gold'; statusText = '(即将过期)'; }
+                                    return <span style={{ color }}>{text} {statusText}</span>;
+                                  },
+                                },
+                                {
+                                  title: '状态',
+                                  dataIndex: 'status',
+                                  render: (v: string, record: any) =>
+                                    record.__synthetic ? (
+                                      <Tag color="error">超上</Tag>
+                                    ) : (
+                                      ({ active: '正常', completed: '已完成', cancelled: '已取消', transferred: '已转让' } as any)[v] || v
+                                    ),
+                                },
+                              ];
 
-                                                let color = 'green';
-                                                 let statusText = '';
-                                                 
-                                                 if (expire < now) {
-                                                     color = 'red';
-                                                     statusText = '(已过期)';
-                                                 } else if (expire <= oneMonthLater) {
-                                                     color = 'gold'; // yellow/orange for warning
-                                                     statusText = '(即将过期)';
-                                                 }
-
-                                                 return <span style={{ color }}>{text} {statusText}</span>;
-                                             }
-                                        },
-                                         { title: '状态', dataIndex: 'status', valueEnum: {
-                                             active: { text: '正常', status: 'Success' },
-                                             completed: { text: '已完成', status: 'Default' },
-                                             cancelled: { text: '已取消', status: 'Error' },
-                                         }},
-                                     ]}
-                                     size="small"
-                                     bordered
-                                 />
-                             </div>
-                         </Card>
-                     )})}
-                </div>
+                              return (
+                                <ProTable
+                                  rowKey="id"
+                                  search={false}
+                                  toolBarRender={false}
+                                  options={false}
+                                  pagination={false}
+                                  dataSource={ordersWithExtra}
+                                  columns={columns as any}
+                                  size="small"
+                                  bordered
+                                />
+                              );
+                            })()}
+                          </div>
+                        </Card>
+                      ),
+                    };
+                  });
+                  return <Tabs items={items} />;
+                })()
               ),
             },
             {
               label: '订单记录',
               key: 'orders',
               children: (
-                <ProTable
-                  rowKey="id"
-                  search={false}
-                  toolBarRender={false}
-                  request={async (params) => {
-                    const res = await request(`/api/orders`, {
-                        params: { ...params, student_id: studentId } // 这里实际上查询的是主订单列表
+                <Card bordered={false}>
+                  {(() => {
+                    const groups: Record<string, any[]> = { active: [], completed: [], cancelled: [], transferred: [] };
+                    orders.forEach((o) => {
+                      const s = o.status || 'active';
+                      if (!groups[s]) groups[s] = [];
+                      groups[s].push(o);
                     });
-                    // 如果需要显示子订单，可能需要特定的 API，或者复用 OrderList 的逻辑
-                    // 这里的 /api/orders 已经被我们修改为只返回主订单
-                    return {
-                      data: res,
-                      success: true,
-                    };
-                  }}
-                  columns={[
-                    { 
-                        title: '订单号', 
-                        dataIndex: 'order_no',
-                        render: (text, record) => (
-                            <a onClick={() => history.push(`/finance/order/detail/${record.id}`)}>{text}</a>
-                        )
-                    },
-                    { title: '类型', dataIndex: 'order_type', valueEnum: {
-                        new: { text: '新报' },
-                        renew: { text: '续费' },
-                        supplement: { text: '补缴' },
-                    }},
-                    { title: '总金额', dataIndex: 'total_fee', valueType: 'money' },
-                    { title: '欠费', dataIndex: 'debt_amount', valueType: 'money' },
-                    { title: '订单日期', dataIndex: 'order_date', valueType: 'date' },
-                    { title: '状态', dataIndex: 'status', valueEnum: {
-                        active: { text: '正常', status: 'Success' },
-                        cancelled: { text: '作废', status: 'Error' },
-                    }},
-                    {
-                        title: '操作',
-                        valueType: 'option',
-                        render: (_, record) => (
-                            <a onClick={() => history.push(`/finance/order/detail/${record.id}`)}>详情</a>
-                        )
-                    }
-                  ]}
-                />
+
+                    const columns = [
+                      { title: '订单号', dataIndex: 'order_no', render: (text: any, record: any) => (<a onClick={() => history.push(`/finance/order/detail/${record.id}`)}>{text}</a>) },
+                      { title: '类型', dataIndex: 'order_type', render: (v: string) => ({ new: '新报', renew: '续费', supplement: '补缴', transfer: '转让', gift: '赠送' } as any)[v] || v },
+                      { title: '总金额', dataIndex: 'total_fee', render: (v: any) => `¥${Number(v||0).toFixed(2)}` },
+                      { title: '欠费', dataIndex: 'debt_amount', render: (v: any) => `¥${Number(v||0).toFixed(2)}` },
+                      { title: '订单日期', dataIndex: 'order_date', render: (v: any) => v ? dayjs(v).format('YYYY-MM-DD') : '-' },
+                      { title: '状态', dataIndex: 'status', render: (v: string) => ({ active: '正常', completed: '已完成', cancelled: '已取消', transferred: '已转让' } as any)[v] || v },
+                      { title: '操作', dataIndex: 'op', render: (_: any, record: any) => (<a onClick={() => history.push(`/finance/order/detail/${record.id}`)}>详情</a>) },
+                    ];
+
+                    const items = [
+                      { key: 'active', label: '正常', data: groups.active },
+                      { key: 'completed', label: '已完成', data: groups.completed },
+                      { key: 'cancelled', label: '已取消', data: groups.cancelled },
+                      { key: 'transferred', label: '已转让', data: groups.transferred },
+                    ].map((it) => ({
+                      key: it.key,
+                      label: it.label,
+                      children: (
+                        <Table
+                          rowKey="id"
+                          loading={ordersLoading}
+                          columns={columns as any}
+                          dataSource={it.data}
+                          pagination={{ pageSize: 10 }}
+                        />
+                      ),
+                    }));
+
+                    return <Tabs items={items} />;
+                  })()}
+                </Card>
               ),
             },
             {
               label: '签到记录',
               key: 'attendances',
               children: (
-                <ProTable
-                  rowKey="id"
-                  search={false}
-                  toolBarRender={() => [
-                      <AccessBtn key="export" access="canExportAttendance">
-                          <Button icon={<DownloadOutlined />} onClick={handleExportAttendances}>
-                              导出
-                          </Button>
-                      </AccessBtn>,
-                      <AccessBtn key="share" access="canExportAttendance">
-                          <Button 
-                            icon={<ShareAltOutlined />} 
-                            onClick={() => {
-                                setShareLink('');
-                                setShareModalVisible(true);
-                            }}
-                          >
-                              生成签到链接
-                          </Button>
-                      </AccessBtn>
-                  ]}
-                  request={async (params) => {
-                    const res = await request(`/api/attendances`, {
-                        params: { ...params, student_id: studentId }
+                <Card bordered={false}>
+                  <Space style={{ marginBottom: 16 }} wrap>
+                    <DatePicker.RangePicker value={attDateRange} onChange={setAttDateRange as any} />
+                    <Select
+                      placeholder="按科目筛选"
+                      allowClear
+                      style={{ width: 200 }}
+                      value={attSubjectId}
+                      options={subjectOptions}
+                      onChange={setAttSubjectId as any}
+                    />
+                    <Select
+                      placeholder="按状态筛选"
+                      allowClear
+                      style={{ width: 200 }}
+                      value={attStatus}
+                      options={[
+                        { label: '出勤', value: 'present' },
+                        { label: '缺勤', value: 'absent' },
+                        { label: '迟到', value: 'late' },
+                        { label: '请假', value: 'leave' },
+                      ]}
+                      onChange={setAttStatus as any}
+                    />
+                    <Button type="primary" onClick={fetchAttendanceList} loading={attLoading}>查询</Button>
+                    <AccessBtn key="export" access="canExportAttendance">
+                      <Button icon={<DownloadOutlined />} onClick={handleExportAttendances}>导出</Button>
+                    </AccessBtn>
+                    <AccessBtn key="share" access="canExportAttendance">
+                      <Button icon={<ShareAltOutlined />} onClick={() => { setShareLink(''); setShareModalVisible(true); }}>生成签到链接</Button>
+                    </AccessBtn>
+                  </Space>
+                  {(() => {
+                    const grouped: Record<string, any[]> = {};
+                    (attendances || []).forEach((a: any) => {
+                      const key = a.course?.subject?.name || '未分类';
+                      if (!grouped[key]) grouped[key] = [];
+                      grouped[key].push(a);
                     });
-                    return {
-                      data: res,
-                      success: true,
-                    };
-                  }}
-                  columns={[
-                    { title: '课程', dataIndex: ['course', 'name'] },
-                    { title: '科目', dataIndex: ['course', 'subject', 'name'] },
-                    { title: '教师', dataIndex: ['teacher', 'name'], render: (_, r) => r.teacher?.name || '-' },
-                    { 
-                        title: '子订单', 
-                        dataIndex: ['order', 'order_no'], 
-                        render: (_, r) => r.order ? (
-                            <a onClick={() => history.push(`/finance/order/detail/${r.order.parent_id || r.order.id}`)}>{r.order.order_no}</a>
-                        ) : '-' 
-                    },
-                    { title: '签到时间', dataIndex: 'attendance_date', valueType: 'date' },
-                    { title: '扣除课时', dataIndex: 'hours_deducted', render: (val) => Number(val || 0).toFixed(2) },
-                    { title: '状态', dataIndex: 'status', valueEnum: {
-                      present: { text: '出勤', status: 'Success' },
-                      absent: { text: '缺勤', status: 'Error' },
-                      late: { text: '迟到', status: 'Warning' },
-                      leave: { text: '请假', status: 'Default' },
-                    }},
-                  ]}
-                />
+                    const keys = Object.keys(grouped);
+                    if (keys.length === 0) return <Empty description="暂无签到记录" />;
+                    const columns = [
+                      { title: '课程', dataIndex: ['course', 'name'] },
+                      { title: '教师', dataIndex: ['teacher', 'name'], render: (_: any, r: any) => r.teacher?.name || '-' },
+                      { title: '子订单', dataIndex: ['order', 'order_no'], render: (_: any, r: any) => r.order ? (<a onClick={() => history.push(`/finance/order/detail/${r.order.parent_id || r.order.id}`)}>{r.order.order_no}</a>) : '-' },
+                      { title: '签到时间', dataIndex: 'attendance_date', render: (v: any) => dayjs(v).format('YYYY-MM-DD') },
+                      { title: '扣除课时', dataIndex: 'hours_deducted', render: (val: any) => Number(val || 0).toFixed(2) },
+                      { title: '状态', dataIndex: 'status', render: (v: string) => ({ present: '出勤', absent: '缺勤', late: '迟到', leave: '请假' } as any)[v] || v },
+                    ];
+                    const items = keys.map((subject) => ({
+                      key: subject,
+                      label: subject,
+                      children: (
+                        <div>
+                          <Row gutter={16} style={{ marginBottom: 12 }}>
+                            <Col span={6}><Statistic title="科目课时小计" value={Number(grouped[subject].reduce((s: number, it: any) => s + Number(it.hours_deducted || 0), 0)).toFixed(2)} /></Col>
+                          </Row>
+                          <Table rowKey="id" loading={attLoading} columns={columns as any} dataSource={grouped[subject]} pagination={{ pageSize: 10 }} />
+                        </div>
+                      )
+                    }));
+                    return <Tabs items={items} />;
+                  })()}
+                </Card>
               ),
             },
           ]}

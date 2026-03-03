@@ -34,6 +34,7 @@ export default [
       { name: '学员管理', path: '/academic/student', component: './Student', access: 'canViewStudent' },
       { path: '/academic/student/detail/:id', component: './Student/Detail', hideInMenu: true, name: '学员详情', access: 'canViewStudent' },
       { name: '教师管理', path: '/academic/teacher', component: './Teacher', access: 'canViewTeacher' },
+      { path: '/academic/teacher/detail/:id', name: '教师详情', component: './Teacher/Detail', hideInMenu: true, access: 'canViewTeacher' },
       { name: '科目管理', path: '/academic/subject', component: './Subject', access: 'canViewSubject' },
       { name: '课程管理', path: '/academic/course', component: './Course', access: 'canViewCourse' },
       { path: '/academic/course/detail/:id', name: '课程详情', component: './Course/Detail', hideInMenu: true, access: 'canViewCourse' },

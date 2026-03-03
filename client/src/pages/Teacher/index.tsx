@@ -76,6 +76,7 @@ const TeacherList: React.FC = () => {
       title: '操作',
       valueType: 'option',
       render: (text, record, _, action) => [
+        <a key="detail" onClick={() => (window as any).location.href = `/academic/teacher/detail/${record.id}`}>详情</a>,
         <AccessBtn key="editable" access="canEditTeacher">
           <a
             onClick={() => {

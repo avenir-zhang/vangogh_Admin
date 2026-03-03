@@ -6,10 +6,12 @@ import { Teacher } from './entities/teacher.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { UsersModule } from '../users/users.module';
 import { AccessControlModule } from '../access-control/access-control.module';
+import { Attendance } from '../attendances/entities/attendance.entity';
+import { Course } from '../courses/entities/course.entity';
 
 @Module({
   imports: [
-      TypeOrmModule.forFeature([Teacher, Subject]),
+      TypeOrmModule.forFeature([Teacher, Subject, Attendance, Course]),
       UsersModule,
       AccessControlModule,
   ],

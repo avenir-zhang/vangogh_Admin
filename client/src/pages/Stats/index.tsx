@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Card, DatePicker, Row, Col, Statistic, Table } from 'antd';
-import { Column, Pie } from '@ant-design/plots';
+import { Card, DatePicker, Row, Col, Statistic, Table, Select, Segmented, Space } from 'antd';
+import { Column, Pie, Line } from '@ant-design/plots';
 import { request, useModel } from '@umijs/max';
 import dayjs from 'dayjs';
 
@@ -19,6 +19,17 @@ const Stats: React.FC = () => {
   const [teacherStats, setTeacherStats] = useState<any[]>([]);
   const [subjectStats, setSubjectStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [granularityT, setGranularityT] = useState<'day'|'week'>('day');
+  const [granularityS, setGranularityS] = useState<'day'|'week'>('day');
+  const [granularityStu, setGranularityStu] = useState<'day'|'week'>('day');
+  const [teacherId, setTeacherId] = useState<number | undefined>(undefined);
+  const [subjectId, setSubjectId] = useState<number | undefined>(undefined);
+  const [studentId, setStudentId] = useState<number | undefined>(undefined);
+  const [teacherSeries, setTeacherSeries] = useState<any[]>([]);
+  const [subjectSeries, setSubjectSeries] = useState<any[]>([]);
+  const [studentSeries, setStudentSeries] = useState<any[]>([]);
+  const [teacherOptions, setTeacherOptions] = useState<{label: string, value: number}[]>([]);
+  const [subjectOptions, setSubjectOptions] = useState<{label: string, value: number}[]>([]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -46,6 +57,56 @@ const Stats: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [dateRange]);
+
+  useEffect(() => {
+    // preload teachers/subjects options
+    (async () => {
+      const ts = await request('/api/teachers');
+      setTeacherOptions((ts || []).map((t: any) => ({ label: t.name, value: t.id })));
+      const ss = await request('/api/subjects');
+      setSubjectOptions((ss || []).map((s: any) => ({ label: s.name, value: s.id })));
+    })();
+  }, []);
+
+  const fetchTeacherSeries = async () => {
+    if (!teacherId) return setTeacherSeries([]);
+    const params = {
+      teacher_id: teacherId,
+      granularity: granularityT,
+      start_date: dateRange?.[0]?.format('YYYY-MM-DD'),
+      end_date: dateRange?.[1]?.format('YYYY-MM-DD'),
+    } as any;
+    const res = await request('/api/dashboard/teacher-timeseries', { params });
+    setTeacherSeries(res?.data || []);
+  };
+
+  const fetchSubjectSeries = async () => {
+    if (!subjectId) return setSubjectSeries([]);
+    const params = {
+      subject_id: subjectId,
+      granularity: granularityS,
+      start_date: dateRange?.[0]?.format('YYYY-MM-DD'),
+      end_date: dateRange?.[1]?.format('YYYY-MM-DD'),
+    } as any;
+    const res = await request('/api/dashboard/subject-timeseries', { params });
+    setSubjectSeries(res?.data || []);
+  };
+
+  const fetchStudentSeries = async () => {
+    if (!studentId) return setStudentSeries([]);
+    const params = {
+      student_id: studentId,
+      granularity: granularityStu,
+      start_date: dateRange?.[0]?.format('YYYY-MM-DD'),
+      end_date: dateRange?.[1]?.format('YYYY-MM-DD'),
+    } as any;
+    const res = await request('/api/dashboard/student-timeseries', { params });
+    setStudentSeries(res?.data || []);
+  };
+
+  useEffect(() => { fetchTeacherSeries(); }, [teacherId, granularityT, dateRange]);
+  useEffect(() => { fetchSubjectSeries(); }, [subjectId, granularityS, dateRange]);
+  useEffect(() => { fetchStudentSeries(); }, [studentId, granularityStu, dateRange]);
 
   const isTeacherRole = currentUser?.user_role?.name === 'teacher';
 
@@ -173,6 +234,116 @@ const Stats: React.FC = () => {
                   />
               </Card>
           </Col>
+      </Row>
+
+      <Row gutter={24} style={{ marginTop: 24 }}>
+        <Col span={12}>
+          <Card
+            title="教师课时趋势"
+            bordered={false}
+            extra={
+              <Space>
+                <Select
+                  style={{ width: 180 }}
+                  placeholder="选择教师"
+                  options={teacherOptions}
+                  value={teacherId}
+                  onChange={setTeacherId as any}
+                  allowClear
+                />
+                <Segmented
+                  options={[{ label: '按日', value: 'day' }, { label: '按周', value: 'week' }]}
+                  value={granularityT}
+                  onChange={(v) => setGranularityT(v as any)}
+                />
+              </Space>
+            }
+          >
+            <Line
+              data={teacherSeries}
+              xField="date"
+              yField="hours"
+              point={{ size: 3 }}
+              smooth
+              height={300}
+            />
+          </Card>
+        </Col>
+        <Col span={12}>
+          <Card
+            title="科目课时趋势"
+            bordered={false}
+            extra={
+              <Space>
+                <Select
+                  style={{ width: 180 }}
+                  placeholder="选择科目"
+                  options={subjectOptions}
+                  value={subjectId}
+                  onChange={setSubjectId as any}
+                  allowClear
+                />
+                <Segmented
+                  options={[{ label: '按日', value: 'day' }, { label: '按周', value: 'week' }]}
+                  value={granularityS}
+                  onChange={(v) => setGranularityS(v as any)}
+                />
+              </Space>
+            }
+          >
+            <Line
+              data={subjectSeries}
+              xField="date"
+              yField="hours"
+              point={{ size: 3 }}
+              smooth
+              height={300}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={24} style={{ marginTop: 24 }}>
+        <Col span={24}>
+          <Card
+            title="学员课时趋势"
+            bordered={false}
+            extra={
+              <Space>
+                <Select
+                  style={{ width: 220 }}
+                  placeholder="搜索学员"
+                  showSearch
+                  filterOption={false}
+                  onSearch={async (q) => {
+                    const res = await request('/api/students', { params: { name: q } });
+                    const opts = (res || []).map((s: any) => ({ label: s.name, value: s.id }));
+                    // 简单替换，避免额外状态管理复杂度
+                    (window as any).__stuOpts = opts;
+                  }}
+                  options={(window as any).__stuOpts || []}
+                  value={studentId}
+                  onChange={setStudentId as any}
+                  allowClear
+                />
+                <Segmented
+                  options={[{ label: '按日', value: 'day' }, { label: '按周', value: 'week' }]}
+                  value={granularityStu}
+                  onChange={(v) => setGranularityStu(v as any)}
+                />
+              </Space>
+            }
+          >
+            <Line
+              data={studentSeries}
+              xField="date"
+              yField="hours"
+              point={{ size: 3 }}
+              smooth
+              height={300}
+            />
+          </Card>
+        </Col>
       </Row>
     </PageContainer>
   );

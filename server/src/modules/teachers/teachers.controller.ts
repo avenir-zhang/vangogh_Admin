@@ -31,4 +31,13 @@ export class TeachersController {
   remove(@Param('id') id: string) {
     return this.teachersService.remove(+id);
   }
+
+  @Get(':id/summary')
+  summary(
+    @Param('id') id: string,
+    @Query('start') start?: string,
+    @Query('end') end?: string,
+  ) {
+    return this.teachersService.summary(+id, start, end);
+  }
 }

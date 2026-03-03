@@ -157,16 +157,37 @@ export class AttendancesService {
     }
   }
 
-  findAll(query?: any) {
-    const { current, pageSize, ...filter } = query || {};
-    return this.attendancesRepository.find({
-      where: filter,
-      relations: ['student', 'course', 'course.subject', 'teacher', 'order'], // 关联 order
-      order: {
-          attendance_date: 'DESC',
-          created_at: 'DESC',
-      }
-    });
+  async findAll(query?: any) {
+    const {
+      student_id,
+      subject_id,
+      teacher_id,
+      course_id,
+      status,
+      start_date,
+      end_date,
+    } = query || {};
+
+    const qb = this.attendancesRepository
+      .createQueryBuilder('attendance')
+      .leftJoinAndSelect('attendance.student', 'student')
+      .leftJoinAndSelect('attendance.course', 'course')
+      .leftJoinAndSelect('course.subject', 'subject')
+      .leftJoinAndSelect('attendance.teacher', 'teacher')
+      .leftJoinAndSelect('attendance.order', 'order')
+      .orderBy('attendance.attendance_date', 'DESC')
+      .addOrderBy('attendance.created_at', 'DESC');
+
+    if (student_id) qb.andWhere('attendance.student_id = :student_id', { student_id });
+    if (teacher_id) qb.andWhere('attendance.teacher_id = :teacher_id', { teacher_id });
+    if (course_id) qb.andWhere('attendance.course_id = :course_id', { course_id });
+    if (status) qb.andWhere('attendance.status = :status', { status });
+    if (subject_id) qb.andWhere('course.subject_id = :subject_id', { subject_id });
+    if (start_date) qb.andWhere('attendance.attendance_date >= :start_date', { start_date });
+    if (end_date) qb.andWhere('attendance.attendance_date <= :end_date', { end_date });
+
+    const list = await qb.getMany();
+    return list;
   }
 
   findOne(id: number) {

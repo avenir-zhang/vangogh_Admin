@@ -143,45 +143,58 @@ const ShareAttendance: React.FC = () => {
   ];
 
   const items = Object.keys(groupedAttendances).map(subject => {
-      // Calculate Stats
       const orders = groupedOrders[subject] || [];
       const attendances = groupedAttendances[subject] || [];
-      
+
       let totalRegular = 0;
       let totalGift = 0;
-      
-      // Calculate total bought from valid orders
+      let consumedRegularFromOrders = 0;
+      let consumedGiftFromOrders = 0;
+
       orders.forEach((o: any) => {
           totalRegular += Number(o.regularCourses || 0);
           totalGift += Number(o.giftCourses || 0);
+          consumedRegularFromOrders += Number(o.consumedRegular || 0);
+          consumedGiftFromOrders += Number(o.consumedGift || 0);
       });
-      
-      // Calculate total consumed from actual attendance records
+
+      const useOrderConsumed = orders.length > 0 && orders.some((o: any) => o.consumedRegular != null || o.consumedGift != null);
+
       let totalConsumed = 0;
-      attendances.forEach((a: any) => {
-          totalConsumed += Number(a.hoursDeducted || 0);
-      });
-      
-      // Calculate remaining
-      // Logic: Deduct from Regular first, then Gift. (Or whatever logic, as long as total is correct)
-      // This ensures that if orders are missing/cancelled but attendance exists, we show negative.
-      
-      let remainingRegular = totalRegular - totalConsumed;
-      let remainingGift = totalGift;
-      
-      // If regular is negative (consumed more than bought regular), deduct from gift
-      if (remainingRegular < 0) {
-          remainingGift += remainingRegular; // remainingRegular is negative
-          remainingRegular = 0;
+      let remainingRegular = 0;
+      let remainingGift = 0;
+
+      if (useOrderConsumed) {
+          const actualConsumed = attendances.reduce((s: number, a: any) => s + Number(a.hoursDeducted || 0), 0);
+          const consumedFromOrders = consumedRegularFromOrders + consumedGiftFromOrders;
+          const extra = Math.max(0, actualConsumed - consumedFromOrders);
+
+          remainingRegular = totalRegular - consumedRegularFromOrders;
+          remainingGift = totalGift - consumedGiftFromOrders;
+
+          if (extra > 0) {
+              remainingRegular -= extra;
+              if (remainingRegular < 0) {
+                  remainingGift += remainingRegular;
+                  remainingRegular = 0;
+              }
+          }
+
+          totalConsumed = Math.max(consumedFromOrders, actualConsumed);
+      } else {
+          attendances.forEach((a: any) => {
+              totalConsumed += Number(a.hoursDeducted || 0);
+          });
+          remainingRegular = totalRegular - totalConsumed;
+          remainingGift = totalGift;
+          if (remainingRegular < 0) {
+              remainingGift += remainingRegular;
+              remainingRegular = 0;
+          }
       }
-      
-      // Note: We don't have separate "Consumed Regular" and "Consumed Gift" stats easily 
-      // without complex logic matching attendance to orders.
-      // So we will display "Total Consumed" instead of breaking it down, 
-      // OR we display calculated breakdowns based on our assumption.
-      
-      const calculatedConsumedRegular = totalRegular - remainingRegular;
-      const calculatedConsumedGift = totalGift - remainingGift;
+
+      const calculatedConsumedRegular = Math.max(0, totalRegular - remainingRegular);
+      const calculatedConsumedGift = Math.max(0, totalGift - remainingGift);
 
       const isArrears = remainingRegular < 0 || remainingGift < 0; 
       

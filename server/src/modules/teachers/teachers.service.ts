@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, In } from 'typeorm';
+import { Repository, Like, In, Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import { Teacher } from './entities/teacher.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { UsersService } from '../users/users.service';
 import { RolesService } from '../access-control/roles.service';
 import { User, UserRole } from '../users/entities/user.entity';
+import { Attendance } from '../attendances/entities/attendance.entity';
+import { Course } from '../courses/entities/course.entity';
 
 @Injectable()
 export class TeachersService {
@@ -14,6 +16,10 @@ export class TeachersService {
     private teachersRepository: Repository<Teacher>,
     @InjectRepository(Subject)
     private subjectsRepository: Repository<Subject>,
+    @InjectRepository(Attendance)
+    private attendanceRepository: Repository<Attendance>,
+    @InjectRepository(Course)
+    private courseRepository: Repository<Course>,
     private usersService: UsersService,
     private rolesService: RolesService,
   ) {}
@@ -121,5 +127,49 @@ export class TeachersService {
 
   remove(id: number) {
     return this.teachersRepository.delete(id);
+  }
+
+  async summary(id: number, start?: string, end?: string) {
+    const teacher = await this.teachersRepository.findOne({ where: { id }, relations: ['subjects'] });
+    if (!teacher) {
+      throw new Error(`Teacher #${id} not found`);
+    }
+
+    const where: any = { teacher_id: id };
+    if (start && end) {
+      where.attendance_date = Between(start, end);
+    } else if (start) {
+      where.attendance_date = MoreThanOrEqual(start);
+    } else if (end) {
+      where.attendance_date = LessThanOrEqual(end);
+    }
+
+    const records = await this.attendanceRepository.createQueryBuilder('a')
+      .leftJoin(Course, 'c', 'c.id = a.course_id')
+      .leftJoin(Subject, 's', 's.id = c.subject_id')
+      .where('a.teacher_id = :id', { id })
+      .andWhere(start ? 'a.attendance_date >= :start' : '1=1', { start })
+      .andWhere(end ? 'a.attendance_date <= :end' : '1=1', { end })
+      .select([
+        'a.id as id',
+        'a.attendance_date as attendanceDate',
+        'a.hours_deducted as hoursDeducted',
+        'a.status as status',
+        'c.name as courseName',
+        's.name as subjectName',
+      ])
+      .orderBy('a.attendance_date', 'DESC')
+      .getRawMany();
+
+    const totalHours = records.reduce((s, r) => s + Number(r.hoursDeducted || 0), 0);
+
+    return {
+      success: true,
+      data: {
+        teacher,
+        records,
+        totalHours,
+      },
+    };
   }
 }

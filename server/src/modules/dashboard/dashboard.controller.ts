@@ -61,4 +61,46 @@ export class DashboardController {
         data: await this.dashboardService.getSubjectStats(start_date, end_date) 
     };
   }
+
+  @Get('teacher-timeseries')
+  async getTeacherTimeSeries(@Query() query: any) {
+    const { teacher_id, start_date, end_date, granularity } = query;
+    return {
+      success: true,
+      data: await this.dashboardService.getTeacherTimeSeries(
+        Number(teacher_id),
+        start_date,
+        end_date,
+        granularity || 'day',
+      ),
+    };
+  }
+
+  @Get('subject-timeseries')
+  async getSubjectTimeSeries(@Query() query: any) {
+    const { subject_id, start_date, end_date, granularity } = query;
+    return {
+      success: true,
+      data: await this.dashboardService.getSubjectTimeSeries(
+        Number(subject_id),
+        start_date,
+        end_date,
+        granularity || 'day',
+      ),
+    };
+  }
+
+  @Get('student-timeseries')
+  async getStudentTimeSeries(@Query() query: any) {
+    const { student_id, start_date, end_date, granularity } = query;
+    return {
+      success: true,
+      data: await this.dashboardService.getStudentTimeSeries(
+        Number(student_id),
+        start_date,
+        end_date,
+        granularity || 'day',
+      ),
+    };
+  }
 }
