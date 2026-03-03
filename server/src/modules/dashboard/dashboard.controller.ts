@@ -103,4 +103,40 @@ export class DashboardController {
       ),
     };
   }
+
+  @Get('revenue-timeseries')
+  async revenueTimeSeries(@Query() query: any) {
+    const { start_date, end_date, granularity } = query;
+    return { success: true, data: await this.dashboardService.getRevenueTimeSeries(start_date, end_date, granularity || 'day') };
+  }
+
+  @Get('order-type-distribution')
+  async orderTypeDistribution(@Query() query: any) {
+    const { start_date, end_date } = query;
+    return { success: true, data: await this.dashboardService.getOrderTypeDistribution(start_date, end_date) };
+  }
+
+  @Get('teacher-income')
+  async teacherIncome(@Query() query: any) {
+    const { start_date, end_date } = query;
+    return { success: true, data: await this.dashboardService.getTeacherIncome(start_date, end_date) };
+  }
+
+  @Get('subject-income')
+  async subjectIncome(@Query() query: any) {
+    const { start_date, end_date } = query;
+    return { success: true, data: await this.dashboardService.getSubjectIncome(start_date, end_date) };
+  }
+
+  @Get('top')
+  async top(@Query() query: any) {
+    const { type, start_date, end_date, limit } = query;
+    return { success: true, data: await this.dashboardService.getTop(type || 'subject', start_date, end_date, Number(limit || 10)) };
+  }
+
+  @Get('kpi')
+  async kpi(@Query() query: any) {
+    const { start_date, end_date } = query;
+    return { success: true, data: await this.dashboardService.getKPI(start_date, end_date) };
+  }
 }

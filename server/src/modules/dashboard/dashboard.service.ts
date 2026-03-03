@@ -379,7 +379,7 @@ export class DashboardService {
     }));
   }
 
-  private buildDateBuckets(start: Date, end: Date, granularity: 'day' | 'week') {
+  private buildDateBuckets(start: Date, end: Date, granularity: 'day' | 'week' | 'month') {
     const buckets: { key: string; start: Date; end: Date }[] = [];
     const d = new Date(start);
     d.setHours(0, 0, 0, 0);
@@ -392,6 +392,9 @@ export class DashboardService {
         tmp.setDate(tmp.getDate() + (7 - ((tmp.getDay() + 6) % 7)));
         bucketEnd = new Date(tmp);
         key = `${bucketStart.getFullYear()}-W${getWeekNumber(bucketStart)}`;
+      } else if (granularity === 'month') {
+        bucketEnd = new Date(bucketStart.getFullYear(), bucketStart.getMonth() + 1, 1);
+        key = `${bucketStart.getFullYear()}-${String(bucketStart.getMonth() + 1).padStart(2, '0')}`;
       } else {
         bucketEnd = new Date(d);
         bucketEnd.setDate(bucketEnd.getDate() + 1);
@@ -520,5 +523,140 @@ export class DashboardService {
       }
       return { date: b.key, hours: value };
     });
+  }
+
+  async getRevenueTimeSeries(start_date?: string, end_date?: string, granularity: 'day' | 'week' | 'month' = 'day') {
+    const start = start_date ? new Date(start_date) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const end = end_date ? new Date(end_date) : new Date();
+    const buckets = this.buildDateBuckets(start, end, granularity);
+
+    // Sum paid_fee of main orders by date(created_at)
+    const rows = await this.orderRepository
+      .createQueryBuilder('order')
+      .select('DATE(order.created_at)', 'd')
+      .addSelect('SUM(order.paid_fee)', 'paid')
+      .where('order.parent_id IS NULL')
+      .andWhere('order.status != :cancelled', { cancelled: OrderStatus.CANCELLED })
+      .andWhere('order.created_at >= :start', { start })
+      .andWhere('order.created_at <= :end', { end })
+      .groupBy('d')
+      .getRawMany();
+
+    const dayMap = new Map<string, number>();
+    rows.forEach((r: any) => {
+      const key = new Date(r.d).toISOString().slice(0, 10);
+      dayMap.set(key, Number(r.paid || 0));
+    });
+
+    // Aggregate to week/month if needed
+    return buckets.map((b) => {
+      let value = 0;
+      if (granularity === 'day') {
+        value = dayMap.get(b.key) || 0;
+      } else if (granularity === 'week') {
+        for (const [k, v] of dayMap.entries()) {
+          const kd = new Date(k);
+          if (kd >= b.start && kd < b.end) value += v;
+        }
+      } else {
+        for (const [k, v] of dayMap.entries()) {
+          const kd = new Date(k);
+          if (kd.getFullYear() === b.start.getFullYear() && kd.getMonth() === b.start.getMonth()) value += v;
+        }
+      }
+      return { date: b.key, amount: value };
+    });
+  }
+
+  async getOrderTypeDistribution(start_date?: string, end_date?: string) {
+    const query = this.orderRepository
+      .createQueryBuilder('order')
+      .select('order.order_type', 'orderType')
+      .addSelect('SUM(order.paid_fee)', 'amount')
+      .where('order.parent_id IS NULL')
+      .andWhere('order.status != :cancelled', { cancelled: OrderStatus.CANCELLED });
+    if (start_date) query.andWhere('order.created_at >= :start', { start: start_date });
+    if (end_date) query.andWhere('order.created_at <= :end', { end: end_date });
+    const rows = await query.groupBy('order.order_type').getRawMany();
+    return rows.map((r: any) => ({ orderType: r.orderType, amount: Number(r.amount || 0) }));
+  }
+
+  async getSubjectIncome(start_date?: string, end_date?: string) {
+    const query = this.attendanceRepository
+      .createQueryBuilder('attendance')
+      .leftJoin('attendance.course', 'course')
+      .leftJoin('course.subject', 'subject')
+      .select('subject.name', 'subjectName')
+      .addSelect('SUM(subject.price * attendance.hours_deducted)', 'income')
+      .where('attendance.status = :status', { status: AttendanceStatus.PRESENT });
+    if (start_date) query.andWhere('attendance.attendance_date >= :start', { start: start_date });
+    if (end_date) query.andWhere('attendance.attendance_date <= :end', { end: end_date });
+    const rows = await query.groupBy('subject.id').getRawMany();
+    return rows.map((r: any) => ({ subjectName: r.subjectName || '未知科目', income: Number(r.income || 0) }));
+  }
+
+  async getTeacherIncome(start_date?: string, end_date?: string) {
+    const query = this.attendanceRepository
+      .createQueryBuilder('attendance')
+      .leftJoin('attendance.teacher', 'teacher')
+      .leftJoin('attendance.course', 'course')
+      .leftJoin('course.subject', 'subject')
+      .select('teacher.name', 'teacherName')
+      .addSelect('SUM(subject.price * attendance.hours_deducted)', 'income')
+      .where('attendance.status = :status', { status: AttendanceStatus.PRESENT });
+    if (start_date) query.andWhere('attendance.attendance_date >= :start', { start: start_date });
+    if (end_date) query.andWhere('attendance.attendance_date <= :end', { end: end_date });
+    const rows = await query.groupBy('teacher.id').getRawMany();
+    return rows.map((r: any) => ({ teacherName: r.teacherName || '未知教师', income: Number(r.income || 0) }));
+  }
+
+  async getTop(type: 'subject' | 'teacher' | 'student', start_date?: string, end_date?: string, limit = 10) {
+    if (type === 'subject') {
+      const data = await this.getSubjectIncome(start_date, end_date);
+      return data.sort((a, b) => b.income - a.income).slice(0, limit);
+    }
+    if (type === 'teacher') {
+      const data = await this.getTeacherIncome(start_date, end_date);
+      return data.sort((a, b) => b.income - a.income).slice(0, limit);
+    }
+    // student income
+    const query = this.attendanceRepository
+      .createQueryBuilder('attendance')
+      .leftJoin('attendance.student', 'student')
+      .leftJoin('attendance.course', 'course')
+      .leftJoin('course.subject', 'subject')
+      .select('student.name', 'studentName')
+      .addSelect('SUM(subject.price * attendance.hours_deducted)', 'income')
+      .where('attendance.status = :status', { status: AttendanceStatus.PRESENT });
+    if (start_date) query.andWhere('attendance.attendance_date >= :start', { start: start_date });
+    if (end_date) query.andWhere('attendance.attendance_date <= :end', { end: end_date });
+    const rows = await query.groupBy('student.id').orderBy('income', 'DESC').limit(limit).getRawMany();
+    return rows.map((r: any) => ({ studentName: r.studentName || '未知学员', income: Number(r.income || 0) }));
+  }
+
+  async getKPI(start_date?: string, end_date?: string) {
+    // Income & orders
+    const baseQ = this.orderRepository
+      .createQueryBuilder('order')
+      .where('order.parent_id IS NULL')
+      .andWhere('order.status != :cancelled', { cancelled: OrderStatus.CANCELLED });
+    if (start_date) baseQ.andWhere('order.created_at >= :start', { start: start_date });
+    if (end_date) baseQ.andWhere('order.created_at <= :end', { end: end_date });
+    const { sum: incomeSum } = await baseQ.clone().select('SUM(order.paid_fee)', 'sum').getRawOne();
+    const { cnt } = await baseQ.clone().select('COUNT(order.id)', 'cnt').getRawOne();
+    const income = Number(incomeSum || 0);
+    const ordersCount = Number(cnt || 0);
+    const avgTicket = ordersCount > 0 ? income / ordersCount : 0;
+
+    // Current total debt (not limited by date)
+    const { sum: debtSum } = await this.orderRepository
+      .createQueryBuilder('order')
+      .select('SUM(order.debt_amount)', 'sum')
+      .where('order.parent_id IS NULL')
+      .andWhere('order.status != :cancelled', { cancelled: OrderStatus.CANCELLED })
+      .andWhere('order.debt_amount > 0')
+      .getRawOne();
+
+    return { income, ordersCount, avgTicket, debtTotal: Number(debtSum || 0) };
   }
 }

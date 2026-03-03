@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Card, DatePicker, Row, Col, Statistic, Table, Select, Segmented, Space } from 'antd';
-import { Column, Pie, Line } from '@ant-design/plots';
+import { Card, DatePicker, Row, Col, Statistic, Table, Select, Segmented, Space, Button } from 'antd';
+import { Column, Pie, Line, Area, DualAxes } from '@ant-design/plots';
 import { request, useModel } from '@umijs/max';
 import dayjs from 'dayjs';
 
@@ -30,6 +30,11 @@ const Stats: React.FC = () => {
   const [studentSeries, setStudentSeries] = useState<any[]>([]);
   const [teacherOptions, setTeacherOptions] = useState<{label: string, value: number}[]>([]);
   const [subjectOptions, setSubjectOptions] = useState<{label: string, value: number}[]>([]);
+  const [kpi, setKPI] = useState<any>({ income: 0, ordersCount: 0, avgTicket: 0, debtTotal: 0 });
+  const [revenueSeries, setRevenueSeries] = useState<any[]>([]);
+  const [orderTypeDist, setOrderTypeDist] = useState<any[]>([]);
+  const [topTeachers, setTopTeachers] = useState<any[]>([]);
+  const [topSubjects, setTopSubjects] = useState<any[]>([]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -108,6 +113,26 @@ const Stats: React.FC = () => {
   useEffect(() => { fetchSubjectSeries(); }, [subjectId, granularityS, dateRange]);
   useEffect(() => { fetchStudentSeries(); }, [studentId, granularityStu, dateRange]);
 
+  // KPI and revenue/order-type
+  const fetchFinance = async () => {
+    const params: any = {
+      start_date: dateRange?.[0]?.format('YYYY-MM-DD'),
+      end_date: dateRange?.[1]?.format('YYYY-MM-DD'),
+    };
+    const k = await request('/api/dashboard/kpi', { params });
+    setKPI(k?.data || {});
+    const rev = await request('/api/dashboard/revenue-timeseries', { params: { ...params, granularity: 'day' } });
+    setRevenueSeries(rev?.data || []);
+    const dist = await request('/api/dashboard/order-type-distribution', { params });
+    setOrderTypeDist(dist?.data || []);
+    const tt = await request('/api/dashboard/top', { params: { ...params, type: 'teacher', limit: 5 } });
+    setTopTeachers(tt?.data || []);
+    const ts = await request('/api/dashboard/top', { params: { ...params, type: 'subject', limit: 5 } });
+    setTopSubjects(ts?.data || []);
+  };
+
+  useEffect(() => { fetchFinance(); }, [dateRange]);
+
   const isTeacherRole = currentUser?.user_role?.name === 'teacher';
 
   // Teacher Chart Config
@@ -176,6 +201,26 @@ const Stats: React.FC = () => {
             ]
         }}
     >
+      <Row gutter={24} style={{ marginBottom: 24 }}>
+        <Col span={6}><Card><Statistic title="期间收入(¥)" value={Number(kpi.income || 0).toFixed(2)} /></Card></Col>
+        <Col span={6}><Card><Statistic title="订单数" value={kpi.ordersCount || 0} /></Card></Col>
+        <Col span={6}><Card><Statistic title="平均客单(¥)" value={Number(kpi.avgTicket || 0).toFixed(2)} /></Card></Col>
+        <Col span={6}><Card><Statistic title="当前欠费(¥)" value={Number(kpi.debtTotal || 0).toFixed(2)} valueStyle={{ color: (kpi.debtTotal || 0) > 0 ? '#cf1322' : undefined }} /></Card></Col>
+      </Row>
+
+      <Row gutter={24} style={{ marginBottom: 24 }}>
+        <Col span={16}>
+          <Card title="收入趋势" bordered={false}>
+            <Line data={revenueSeries} xField="date" yField="amount" point={{ size: 3 }} smooth height={260} />
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card title="订单类型分布" bordered={false}>
+            <Pie data={orderTypeDist.map(i => ({ type: i.orderType, value: i.amount }))} angleField="value" colorField="type" height={260} legend={false} label={{ type: 'outer' }} />
+          </Card>
+        </Col>
+      </Row>
+
       <Row gutter={24}>
         <Col span={12}>
             <Card title={isTeacherRole ? "我的授课统计" : "教师授课统计"} bordered={false} loading={loading}>
@@ -234,6 +279,21 @@ const Stats: React.FC = () => {
                   />
               </Card>
           </Col>
+      </Row>
+
+      <Row gutter={24} style={{ marginTop: 24 }}>
+        <Col span={12}>
+          <Card title="教师收入Top5" bordered={false}>
+            <Table rowKey={(r:any, i:number) => `${r.teacherName}-${i}`} pagination={false} dataSource={topTeachers}
+              columns={[{ title: '教师', dataIndex: 'teacherName' }, { title: '收入(¥)', dataIndex: 'income', render: (v) => Number(v).toFixed(2) }]} />
+          </Card>
+        </Col>
+        <Col span={12}>
+          <Card title="科目收入Top5" bordered={false}>
+            <Table rowKey={(r:any, i:number) => `${r.subjectName}-${i}`} pagination={false} dataSource={topSubjects}
+              columns={[{ title: '科目', dataIndex: 'subjectName' }, { title: '收入(¥)', dataIndex: 'income', render: (v) => Number(v).toFixed(2) }]} />
+          </Card>
+        </Col>
       </Row>
 
       <Row gutter={24} style={{ marginTop: 24 }}>
